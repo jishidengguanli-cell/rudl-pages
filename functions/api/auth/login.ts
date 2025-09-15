@@ -22,10 +22,15 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   return new Response(JSON.stringify({ id: uid, email: em }), {
     headers: {
       "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
       "set-cookie": setSessionCookie(token, days),
     },
   });
 };
+
 function json(obj: any, status = 200) {
-  return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json; charset=utf-8" } });
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
 }
