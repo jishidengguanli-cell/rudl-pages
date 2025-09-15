@@ -59,7 +59,7 @@
     <table id="tbl" style="display:none">
       <thead>
         <tr>
-          <th>短碼</th><th>標題</th><th>版本</th><th>檔案</th><th>建立時間</th><th>下載頁</th>
+          <th>短碼</th><th>標題</th><th>版本</th><th>檔案</th><th>建立時間</th><th>下載數</th><th>下載頁</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -162,25 +162,29 @@ async function loadList() {
     tbl.style.display = "table";
 
     for (const it of items) {
-      const hasApk = !!it.apk_key, hasIpa = !!it.ipa_key;
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td><code>${it.code}</code></td>
-        <td>${esc(it.title||"")}</td>
-        <td>${esc(it.version||"")}</td>
-        <td>
-          ${hasApk?'<span class="tag">APK</span>':''}
-          ${hasIpa?'<span class="tag">IPA</span>':''}
-        </td>
-        <td>${fmt(it.createdAt)}</td>
-        <td>
-          <div class="small">
-            <a href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
-            <button class="copy" data-url="${absLink(it.code)}">複製</button>
-          </div>
-        </td>`;
-      tbody.appendChild(tr);
-    }
+    const hasApk = !!it.apk_key, hasIpa = !!it.ipa_key;
+    const today = (it.stats && it.stats.today) || 0;
+    const total = (it.stats && it.stats.total) || 0;
+  
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><code>${it.code}</code></td>
+      <td>${esc(it.title||"")}</td>
+      <td>${esc(it.version||"")}</td>
+      <td>
+        ${hasApk?'<span class="tag">APK</span>':''}
+        ${hasIpa?'<span class="tag">IPA</span>':''}
+      </td>
+      <td>${fmt(it.createdAt)}</td>
+      <td><span class="tag">${today}</span> / <span class="tag">${total}</span></td>
+      <td>
+        <div class="small">
+          <a href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
+          <button class="copy" data-url="${absLink(it.code)}">複製</button>
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+  }
   } catch (err) {
     tbl.style.display = "none";
     empty.style.display = "block";
