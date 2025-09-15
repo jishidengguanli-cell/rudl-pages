@@ -10,7 +10,7 @@
   input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1222;color:#e5e7eb}
   button{width:100%;padding:12px;border-radius:10px;border:0;background:#10b981;color:#0b1222;margin-top:16px;font-weight:700}
   a{color:#93c5fd;text-decoration:none}
-  .err{color:#fca5a5;margin-top:8px;min-height:20px}
+  .err{color:#fca5a5;margin-top:8px;min-height:20px;white-space:pre-wrap}
 </style>
 
 <div class="wrap">
@@ -26,32 +26,42 @@
   </div>
 </div>
 
-<!-- 先載入共用工具 -->
-<script src="/app.js"></script>
-<!-- 再掛事件處理（放在 body 最底，確保 DOM 已建立） -->
 <script>
-const email = qs('email');
-const pw = qs('pw');
-const btn = qs('btn');
-const err = qs('err');
+const $ = id => document.getElementById(id);
+$("pw").addEventListener("keydown", e => { if (e.key === "Enter") $("btn").click(); });
 
-btn.addEventListener('click', async () => {
-  err.textContent = '';
-  const em = (email.value || '').trim();
-  const pwd = pw.value || '';
-  if (!em || !pwd) { err.textContent = '請輸入 Email 與密碼'; return; }
-  if (pwd.length < 8) { err.textContent = '密碼至少 8 碼'; return; }
+$("btn").onclick = async () => {
+  const email = $("email").value.trim();
+  const password = $("pw").value;
+  const err = $("err"); err.textContent = "";
 
-  setBtnLoading(btn, true);
-  const { status, data } = await postJSON('/api/auth/register', { email: em, password: pwd });
-  setBtnLoading(btn, false);
+  if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return err.textContent = "請輸入正確的 Email";
+  if (password.length < 8) return err.textContent = "密碼至少 8 碼";
 
-  if (status === 201) {
-    location.href = '/dashboard.html';
-  } else if (status === 409) {
-    err.textContent = '這個 Email 已被註冊';
-  } else {
-    err.textContent = data?.error || '發生錯誤，稍後再試';
+  $("btn").disabled = true; $("btn").textContent = "建立中…";
+  try {
+    const r = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await r.json().catch(()=>({}));
+    if (!r.ok) {
+      if (data?.error === "email already registered" || r.status === 409) {
+        err.textContent = "此 Email 已被註冊";
+      } else if (data?.error) {
+        err.textContent = data.error;
+      } else {
+        err.textContent = "註冊失敗，請稍後再試";
+      }
+      return;
+    }
+    // 註冊成功會同時設置 sid Cookie → 直接進 Dashboard
+    location.href = "/dashboard.html";
+  } catch (e) {
+    err.textContent = String(e);
+  } finally {
+    $("btn").disabled = false; $("btn").textContent = "註冊";
   }
-});
+};
 </script>
