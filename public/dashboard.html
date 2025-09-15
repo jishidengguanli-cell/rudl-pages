@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>控制台 - RU Download</title>
 <style>
+  .copy{margin-left:8px;padding:4px 8px;background:#374151;border:1px solid #4b5563;border-radius:8px;color:#e5e7eb;cursor:pointer;font-size:12px}
   body{margin:0;background:#0f172a;color:#e5e7eb;font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
   header{background:#0b1222;border-bottom:1px solid #1f2937}
   .wrap{max-width:980px;margin:0 auto;padding:16px}
@@ -143,24 +144,24 @@ async function loadList() {
       <td>${esc(it.title||"")}</td>
       <td>${esc(it.version||"")}</td>
       <td>
-        ${hasApk?'<span class="tag">APK</span>':''}
-        ${hasIpa?'<span class="tag">IPA</span>':''}
+        ${it.apk_key?'<span class="tag">APK</span>':''}
+        ${it.ipa_key?'<span class="tag">IPA</span>':''}
       </td>
       <td>${fmt(it.createdAt)}</td>
       <td>
         <div class="small">
-          <div>下載頁：<code>/d/${it.code}</code>（下一步開通）</div>
-          ${hasApk?`<div>APK：<a href="${cdnUrl(it.apk_key)}" target="_blank">cdn/.../${short(it.apk_key)}</a></div>`:""}
-          ${hasIpa?`<div>IPA：<a href="${cdnUrl(it.ipa_key)}" target="_blank">cdn/.../${short(it.ipa_key)}</a></div>`:""}
+          <a href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
+          <button class="copy" data-url="${absLink(it.code)}">複製</button>
         </div>
       </td>`;
+
     tbody.appendChild(tr);
   }
 }
 function esc(s){return String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]))}
 function fmt(ts){if(!ts)return ""; const d=new Date(ts); return `${d.getFullYear()}-${(d.getMonth()+1+"").padStart(2,"0")}-${(d.getDate()+"").padStart(2,"0")} ${d.toTimeString().slice(0,8)}`;}
-function cdnUrl(key){ return `https://cdn.rudownload.win/${key}`; }
-function short(p){ return String(p).split("/").slice(-2).join("/"); }
+// function cdnUrl(key){ return `https://cdn.rudownload.win/${key}`; }
+// function short(p){ return String(p).split("/").slice(-2).join("/"); }
 
 // ===== 新增分發（Modal + 上傳） =====
 const modal = document.getElementById("modal");
@@ -249,4 +250,23 @@ function xhrPut(url, file, contentType, onProgress){
 }
 
 function $(id){ return document.getElementById(id); }
+
+function absLink(code){ return `${location.origin}/d/${code}`; }
+
+// 一鍵複製（事件委派）
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target && ev.target.closest ? ev.target.closest('.copy') : null;
+  if (!btn) return;
+  const url = btn.getAttribute('data-url');
+  try {
+    await navigator.clipboard.writeText(url);
+    const old = btn.textContent;
+    btn.textContent = '已複製';
+    btn.disabled = true;
+    setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 1200);
+  } catch {
+    alert('無法自動複製，請手動複製：\n' + url);
+  }
+});
+
 </script>
