@@ -1,36 +1,81 @@
 // functions/dl/[code].ts
-export interface Env { LINKS: KVNamespace }
+// 計數 + 轉址
+export interface Env {
+  LINKS: KVNamespace;
+}
 
 export const onRequestGet: PagesFunction<Env> = async (ctx) => {
-  const code = ctx.params?.code as string;
-  if (!code) return j({ error: "missing code" }, 400);
+  const url  = new URL(ctx.request.url);
+  const code = String(ctx.params?.code || "");
+  const p    = (url.searchParams.get("p") || "").toLowerCase(); // 'apk' | 'ios' | 'ipa'
+
+  if (!code) return new Response("Bad Request", { status: 400 });
 
   const raw = await ctx.env.LINKS.get(`link:${code}`);
-  if (!raw) return j({ error: "not found" }, 404);
-  const rec = JSON.parse(raw) as { apk_key?: string; ipa_key?: string; code: string };
+  if (!raw) return new Response("Not Found", { status: 404, headers: noStore() });
 
-  const url = new URL(ctx.request.url);
-  let type = url.searchParams.get("type"); // 'apk' | 'ipa' | null
-  if (!type) {
-    const ua = (ctx.request.headers.get("user-agent") || "").toLowerCase();
-    if (/android/.test(ua) && rec.apk_key) type = "apk";
-    else if (/(iphone|ipad|ipod|ios|like mac os x)/.test(ua) && rec.ipa_key) type = "ipa";
+  const rec = JSON.parse(raw) as {
+    code: string;
+    apk_key?: string;
+    ipa_key?: string;
+  };
+
+  // 目的地
+  let destination = "";
+  let type: "apk" | "ipa" | null = null;
+
+  if (p === "apk") {
+    if (!rec.apk_key) return new Response("APK Not Found", { status: 404, headers: noStore() });
+    destination = `https://cdn.rudownload.win/${encodeURI(rec.apk_key)}`;
+    type = "apk";
+  } else if (p === "ios" || p === "ipa") {
+    if (!rec.ipa_key) return new Response("IPA Not Found", { status: 404, headers: noStore() });
+    const manifest = `https://app.rudownload.win/m/${encodeURIComponent(code)}`;
+    destination = `itms-services://?action=download-manifest&url=${encodeURIComponent(manifest)}`;
+    type = "ipa";
+  } else {
+    // 未指定參數就回 400（可改成導回下載頁）
+    return new Response("Missing p=apk|ios", { status: 400, headers: noStore() });
   }
 
-  if (type === "apk" && rec.apk_key) {
-    return redirect(`https://cdn.rudownload.win/${encodeURI(rec.apk_key)}`);
-  }
-  if (type === "ipa" && rec.ipa_key) {
-    const iosManifestUrl = `https://${new URL(ctx.request.url).host}/m/${encodeURIComponent(code)}`;
-    const itms = `itms-services://?action=download-manifest&url=${encodeURIComponent(iosManifestUrl)}`;
-    return redirect(itms);
-  }
+  // 計數（不阻塞回應）
+  if (type) ctx.waitUntil(incrCounters(ctx.env.LINKS, code, type));
 
-  // 沒有合適檔案 → 回下載頁
-  return redirect(`/d/${encodeURIComponent(code)}`);
+  // 302 轉址到真正下載
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: destination,
+      ...noStore(),
+    },
+  });
 };
 
-function redirect(loc: string) {
-  return new Response("", { status: 302, headers: { "location": loc, "cache-control": "no-store" } });
+// ===== 工具：計數（簡單 KV，自然有小機率併發丟失，但一般流量足夠） =====
+async function incrCounters(KV: KVNamespace, code: string, type: "apk" | "ipa") {
+  const now = Date.now();
+  const yyyymmdd = new Date(now).toISOString().slice(0, 10).replace(/-/g, ""); // 20250915
+
+  // 總數（全部 / 每類）
+  await add1(KV, `cnt:${code}:total`);
+  await add1(KV, `cnt:${code}:${type}:total`);
+
+  // 今日（全部 / 每類），給 TTL 60 天，避免無限累積
+  const ttl = 60 * 24 * 60 * 60; // 60 天（秒）
+  await add1(KV, `cnt:${code}:day:${yyyymmdd}`, ttl);
+  await add1(KV, `cnt:${code}:${type}:day:${yyyymmdd}`, ttl);
 }
-function j(obj: any, status=200){ return new Response(JSON.stringify(obj), { status, headers:{ "content-type":"application/json; charset=utf-8", "cache-control":"no-store" } }); }
+
+async function add1(KV: KVNamespace, key: string, ttlSeconds?: number) {
+  const cur = parseInt((await KV.get(key)) || "0", 10) || 0;
+  const putOpts = ttlSeconds ? { expirationTtl: ttlSeconds } : undefined;
+  await KV.put(key, String(cur + 1), putOpts as any);
+}
+
+function noStore() {
+  return {
+    "cache-control": "no-store, private, max-age=0",
+    "cdns-cache-control": "no-store",
+    "x-robots-tag": "noindex",
+  };
+}
