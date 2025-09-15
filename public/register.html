@@ -42,6 +42,7 @@ $("btn").addEventListener("click", async () => {
   try {
     const r = await fetch("/api/auth/register", {
       method: "POST",
+      credentials: "include",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, password })
     });
@@ -52,6 +53,12 @@ $("btn").addEventListener("click", async () => {
       } else {
         err.textContent = data?.error || "註冊失敗，請稍後再試";
       }
+      return;
+    }
+    // 二次確認 Cookie 是否生效
+    const me = await fetch("/api/auth/me", { credentials: "include" }).then(x=>x.json());
+    if (!me.authenticated) {
+      err.textContent = "登入狀態確認失敗，請重新整理或再試一次。";
       return;
     }
     location.href = "/dashboard.html";
