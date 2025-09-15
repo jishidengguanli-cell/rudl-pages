@@ -8,19 +8,17 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const raw = await ctx.env.LINKS.get(`link:${code}`);
   if (!raw) return notFound();
   const rec = JSON.parse(raw) as {
-    code: string; title?: string; version?: string; bundle_id?: string; ipa_key?: string;
+    code: string; title?: string; version?: string; bundle_id?: string; ipa_key?: string; ipaMeta?: { bundle_id?: string; version?: string };
   };
   if (!rec.ipa_key) return notFound();
-  
 
+  // ★ 使用 ipaMeta 優先（自動偵測），用戶填寫的 version/bundle_id 僅作展示
   const title   = rec.title || "App";
-  const meta    = (rec as any).ipaMeta || {}; // 新增：自動偵測結果會放這裡
+  const meta    = rec.ipaMeta || {};
   const bundle  = meta.bundle_id || rec.bundle_id || `com.unknown.${rec.code}`;
   const version = meta.version    || rec.version    || "1.0";
+
   const ipaUrl  = `https://cdn.rudownload.win/${encodeURI(rec.ipa_key)}`;
-  // const title = rec.title || "App";
-  // const version = rec.version || "1.0";
-  // const bundle = rec.bundle_id || `com.unknown.${rec.code}`;
 
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
