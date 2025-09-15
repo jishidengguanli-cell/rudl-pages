@@ -74,16 +74,16 @@
     <p class="small">上傳 APK 或 IPA（可擇一或兩者都上傳）。上傳完成後會建立一個短碼。</p>
     <div class="row">
       <div>
-        <label>標題（顯示用）</label>
+        <label>標題（顯示用，可選）</label>
         <input id="title" type="text" placeholder="例如：My App" />
       </div>
       <div>
-        <label>版本（顯示用）</label>
-        <input id="version" type="text" placeholder="例如：1.0.0（不影響 iOS 安裝）" />
+        <label>版本（顯示用，可選）</label>
+        <input id="version" type="text" placeholder="例如：1.0.0（僅顯示，不影響 iOS 安裝）" />
       </div>
     </div>
-    <label>Bundle ID（顯示用）</label>
-    <input id="bundle" type="text" placeholder="例如：com.example.app（不影響 iOS 安裝）" />
+    <label>Bundle ID（顯示用，可選）</label>
+    <input id="bundle" type="text" placeholder="例如：com.example.app（僅顯示，不影響 iOS 安裝）" />
     <div class="row" style="margin-top:8px">
       <div>
         <label>APK 檔（android）</label>
@@ -177,7 +177,7 @@ document.addEventListener('click', async (ev) => {
   }
 });
 
-// ===== 新增分發（Modal + 上傳 + IPA 自動解析） =====
+// ===== 新增分發（Modal + 上傳 + 解析 IPA） =====
 const modal = document.getElementById("modal");
 document.getElementById("btn-new").addEventListener("click", ()=>{ modal.style.display="flex"; resetModal(); });
 document.getElementById("btn-cancel").addEventListener("click", ()=>{ modal.style.display="none"; });
@@ -192,23 +192,25 @@ function resetModal(){
 
 document.getElementById("btn-create").addEventListener("click", async ()=>{
   const title = $("title").value.trim();
-  const version = $("version").value.trim();     // 顯示用
-  const bundle = $("bundle").value.trim();       // 顯示用
+  const version = $("version").value.trim();   // 顯示用
+  const bundle = $("bundle").value.trim();     // 顯示用
   const apkFile = $("apk").files[0];
   const ipaFile = $("ipa").files[0];
   const err = $("err"); err.textContent = "";
 
   if (!apkFile && !ipaFile) { err.textContent = "請至少選擇一個檔案（APK 或 IPA）。"; return; }
 
-  // 先嘗試解析 IPA（若有選）
+  // 先嘗試從本地解析 IPA 的 bundleId/version（失敗就算了，不擋流程）
   let ipaMeta = null;
   if (ipaFile) {
     try {
       $("t-ipa").textContent = "解析 IPA 中…";
       const meta = await inspectIpa(ipaFile); // {bundle_id, version}
       if (meta?.bundle_id || meta?.version) ipaMeta = meta;
-      $("t-ipa").textContent = `解析完成${ipaMeta ? `（${ipaMeta.bundle_id || ''} ${ipaMeta?.version || ''}）` : ''}`;
-    } catch(e){ $("t-ipa").textContent = "解析失敗（不影響上傳）"; }
+      $("t-ipa").textContent = "解析完成";
+    } catch (e) {
+      $("t-ipa").textContent = "解析失敗（將以顯示資料為準）";
+    }
   }
 
   // 逐一上傳（APK -> IPA）
@@ -224,19 +226,13 @@ document.getElementById("btn-create").addEventListener("click", async ()=>{
     }
   } catch(e){ err.textContent = "上傳失敗：" + (e?.message || e); return; }
 
-  // 建立分發（附上 ipaMeta；顯示欄位仍照用戶輸入）
+  // 建立分發（顯示欄位 + 檔案 key + ipaMeta）
   try {
     const r = await fetch("/api/links/create", {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        title,              // 顯示用
-        version,            // 顯示用
-        bundle_id: bundle,  // 顯示用
-        apkKey, ipaKey,
-        ipaMeta             // ★ 自動偵測（/m 會優先取用這個）
-      })
+      body: JSON.stringify({ title, version, bundle_id: bundle, apkKey, ipaKey, ipaMeta })
     });
     const data = await r.json();
     if (!r.ok) { throw new Error(data?.error || "建立分發失敗"); }
@@ -245,6 +241,7 @@ document.getElementById("btn-create").addEventListener("click", async ()=>{
   } catch(e){ err.textContent = String(e); }
 });
 
+// 呼叫 /api/upload/init 取得預簽名 URL，並用 XHR PUT 上傳（可顯示進度）
 async function uploadFile(file, folder, barEl, setText){
   setText("請求預簽名 URL…");
   const init = await fetch("/api/upload/init", {
@@ -264,7 +261,7 @@ async function uploadFile(file, folder, barEl, setText){
     setText("上傳中… " + pct + "%");
   });
   setText("完成");
-  return init.key;
+  return init.key; // 回傳 R2 key
 }
 
 function xhrPut(url, file, contentType, onProgress){
@@ -281,11 +278,13 @@ function xhrPut(url, file, contentType, onProgress){
 
 function $(id){ return document.getElementById(id); }
 
-// ===== IPA 解析：從 ZIP 取 Payload/*.app/Info.plist，支援 deflate/store，支援 XML 與 bplist =====
+// 解析 IPA：讀 ZIP 的中央目錄找 Payload/*.app/Info.plist，支援 deflate 與未壓縮。
+// Info.plist 若是 XML 直接解析；若是 binary plist（bplist00），使用簡易解析器取字串與字典。
 async function inspectIpa(file) {
   const buf = await file.arrayBuffer();
   const view = new DataView(buf);
-  // 1) 找 EOCD
+
+  // 1) 找 EOCD（End of Central Directory），從檔尾往回 64KB 搜尋
   const eocdSig = 0x06054b50;
   const maxBack = Math.min(65557, buf.byteLength);
   let eocd = -1;
@@ -297,7 +296,7 @@ async function inspectIpa(file) {
   const cdSize  = view.getUint32(eocd + 12, true);
   const cdOff   = view.getUint32(eocd + 16, true);
 
-  // 2) 掃中央目錄
+  // 2) 走訪 Central Directory 找 Info.plist 的 entry
   const cdView = new DataView(buf, cdOff, cdSize);
   let off = 0, entry = null;
   for (let i = 0; i < cdCount; i++) {
@@ -319,7 +318,7 @@ async function inspectIpa(file) {
   }
   if (!entry) throw new Error("Info.plist not found");
 
-  // 3) Local File Header → 取檔案資料
+  // 3) 讀 Local File Header 找到檔案資料起點
   const lfh = new DataView(buf, entry.localOff, 30);
   if (lfh.getUint32(0, true) !== 0x04034b50) throw new Error("LFH signature mismatch");
   const nameLen = lfh.getUint16(26, true);
@@ -327,20 +326,24 @@ async function inspectIpa(file) {
   const dataStart = entry.localOff + 30 + nameLen + extraLen;
   const compData = new Uint8Array(buf, dataStart, entry.compSize);
 
-  // 4) 解壓
+  // 4) 解壓（method 0=store, 8=deflate）
   let plistBytes;
   if (entry.compMethod === 0) {
     plistBytes = compData;
   } else if (entry.compMethod === 8) {
-    const ds = new DecompressionStream("deflate-raw");
-    const decompressed = await new Response(new Blob([compData]).stream().pipeThrough(ds)).arrayBuffer();
-    plistBytes = new Uint8Array(decompressed);
+    if (typeof DecompressionStream !== "undefined") {
+      const ds = new DecompressionStream("deflate-raw");
+      const decompressed = await new Response(new Blob([compData]).stream().pipeThrough(ds)).arrayBuffer();
+      plistBytes = new Uint8Array(decompressed);
+    } else {
+      throw new Error("Deflate not supported in this browser");
+    }
   } else {
-    throw new Error("Unsupported ZIP method: " + entry.compMethod);
+    throw new Error("Unsupported ZIP compression method: " + entry.compMethod);
   }
 
-  // 5) 解析 plist
-  if (plistBytes[0] === 0x3c) { // '<'
+  // 5) 解析 plist（XML or binary）
+  if (plistBytes[0] === 0x3c) { // '<' -> XML
     const text = new TextDecoder().decode(plistBytes);
     return parsePlistXML(text);
   }
@@ -376,12 +379,14 @@ function parsePlistXML(xml) {
   };
 }
 
-// 最小可用 binary plist 解析器（僅為取得兩個欄位）
+// 最小版 binary plist 解析器（足夠拿兩個欄位）
 function parseBinaryPlist(buf) {
   const dv = new DataView(buf);
   const u8 = new Uint8Array(buf);
   const head = new TextDecoder().decode(u8.subarray(0, 8));
   if (!head.startsWith("bplist0")) throw new Error("not bplist");
+
+  // 讀 trailer
   const trailer = new DataView(buf, u8.length - 32, 32);
   const offsetSize = trailer.getUint8(6);
   const objRefSize = trailer.getUint8(7);
@@ -389,48 +394,89 @@ function parseBinaryPlist(buf) {
   const topObject  = Number(readUIntBE(trailer, 16, 8));
   const offsetTbl  = Number(readUIntBE(trailer, 24, 8));
 
+  // 讀 offsets
   const offsets = [];
   for (let i = 0; i < numObjects; i++) offsets.push(Number(readUIntBE(dv, offsetTbl + i*offsetSize, offsetSize)));
 
-  function readLen(off, info, idxAfter) {
-    if (info !== 0x0F) return { len: info, pos: off+1, skip: 0 };
-    const t = u8[off+1]; const type = (t & 0xF0) >> 4; const info2 = (t & 0x0F);
-    if (type !== 0x1) throw new Error("bplist len not int");
-    const len = 1 << info2;
-    const val = Number(readUIntBE(dv, off+2, len));
-    return { len: val, pos: off+2+len, skip: 1 };
-  }
   function readObj(idx) {
     const off = offsets[idx];
     const t = u8[off];
     const type = (t & 0xF0) >> 4;
-    let info = (t & 0x0F);
+    const info = (t & 0x0F);
 
-    if (type === 0x0) { if (info===0x8) return false; if (info===0x9) return true; return null; }
-    if (type === 0x1) { const len=1<<info; return Number(readUIntBE(dv, off+1, len)); }
-    if (type === 0x2) { const len=1<<info; return len===4?dv.getFloat32(off+1,false):dv.getFloat64(off+1,false); }
-    if (type === 0x4) { const {len,pos}=readLen(off,info,idx); return u8.slice(pos,pos+len); }
-    if (type === 0x5) { const {len,pos}=readLen(off,info,idx); return new TextDecoder().decode(u8.subarray(pos,pos+len)); }
-    if (type === 0x6) { const {len,pos}=readLen(off,info,idx); let s=""; for (let i=0;i<len;i++) s+=String.fromCharCode(dv.getUint16(pos+i*2,false)); return s; }
-    if (type === 0xA) {
-      const {len,pos}=readLen(off,info,idx);
-      const arr=[]; for (let i=0;i<len;i++){ const ref=Number(readUIntBE(dv,pos+i*objRefSize,objRefSize)); arr.push(readObj(ref)); }
+    if (type === 0x0) { // null/bool
+      if (info === 0x8) return false;
+      if (info === 0x9) return true;
+      return null;
+    }
+    if (type === 0x1) { // integer
+      const len = 1 << info;
+      return Number(readUIntBE(dv, off+1, len));
+    }
+    if (type === 0x2) { // real
+      const len = 1 << info;
+      if (len === 4) return dv.getFloat32(off+1, false);
+      if (len === 8) return dv.getFloat64(off+1, false);
+      return null;
+    }
+    if (type === 0x4) { // data
+      const {len, pos} = readLen(off, info);
+      return u8.slice(pos, pos+len);
+    }
+    if (type === 0x5) { // ascii string
+      const {len, pos} = readLen(off, info);
+      return new TextDecoder().decode(u8.subarray(pos, pos+len));
+    }
+    if (type === 0x6) { // utf-16-be string
+      const {len, pos} = readLen(off, info);
+      let s=""; for (let i=0;i<len;i++){ s += String.fromCharCode(dv.getUint16(pos+i*2, false)); }
+      return s;
+    }
+    if (type === 0xA) { // array
+      const {len, pos} = readLen(off, info);
+      const arr = [];
+      for (let i=0;i<len;i++){
+        const objRef = Number(readUIntBE(dv, pos + i*objRefSize, objRefSize));
+        arr.push(readObj(objRef));
+      }
       return arr;
     }
-    if (type === 0xD) {
-      const {len,pos}=readLen(off,info,idx);
-      const keys=[], vals=[];
-      for (let i=0;i<len;i++){ const ref=Number(readUIntBE(dv,pos+i*objRefSize,objRefSize)); keys.push(readObj(ref)); }
+    if (type === 0xD) { // dict
+      const {len, pos} = readLen(off, info);
+      const keys = []; const vals = [];
+      for (let i=0;i<len;i++){
+        const keyRef = Number(readUIntBE(dv, pos + i*objRefSize, objRefSize));
+        keys.push(readObj(keyRef));
+      }
       const vs = pos + len*objRefSize;
-      for (let i=0;i<len;i++){ const ref=Number(readUIntBE(dv,vs+i*objRefSize,objRefSize)); vals.push(readObj(ref)); }
-      const o:any={}; for (let i=0;i<len;i++) o[String(keys[i])] = vals[i];
+      for (let i=0;i<len;i++){
+        const valRef = Number(readUIntBE(dv, vs + i*objRefSize, objRefSize));
+        vals.push(readObj(valRef));
+      }
+      const o:any = {}; for (let i=0;i<len;i++) o[String(keys[i])] = vals[i];
       return o;
     }
-    throw new Error("bplist unsupported type " + type);
+    return null;
   }
-  function readUIntBE(dv: DataView, off: number, len: number){
-    let n = 0n; for (let i=0;i<len;i++){ n = (n<<8n) | BigInt(dv.getUint8(off+i)); } return n;
+
+  function readLen(off, info){
+    if (info !== 0x0F) return { len: info, pos: off+1 };
+    // 長度是下一個「整數物件」
+    const t = u8[off+1];
+    const type = (t & 0xF0) >> 4;
+    const info2 = (t & 0x0F);
+    if (type !== 0x1) throw new Error("bplist len not int");
+    const len = 1 << info2;
+    const val = Number(readUIntBE(dv, off+2, len));
+    return { len: val, pos: off+2+len };
   }
-  return readObj(topObject);
+
+  function readUIntBE(dv, off, len){
+    let n = 0n; for (let i=0;i<len;i++){ n = (n<<8n) | BigInt(dv.getUint8(off+i)); }
+    return n;
+  }
+
+  const root = readObj(topObject);
+  return root || {};
 }
 </script>
