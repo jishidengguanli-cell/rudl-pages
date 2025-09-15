@@ -18,6 +18,8 @@
   th{color:#9ca3af;font-weight:600}
   .tag{display:inline-block;padding:2px 8px;border-radius:999px;background:#0b1222;border:1px solid #334155;color:#e5e7eb;font-size:12px}
   .right-ctrls{display:flex;gap:8px}
+  .danger{background:#ef4444;border:1px solid #b91c1c}
+  .small2{font-size:12px;color:#9ca3af}
   /* Modal */
   .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);z-index:50}
   .modal .panel{width:min(680px,92vw);background:#111827;border:1px solid #1f2937;border-radius:16px;padding:20px}
@@ -131,9 +133,25 @@
   </div>
 </div>
 
+<!-- 刪除確認 Modal -->
+<div class="modal" id="modal-del">
+  <div class="panel">
+    <h3 style="margin:0 0 8px">刪除分發</h3>
+    <p class="small">將刪除此分發的資料與統計（不會刪除 R2 檔案）。此操作不可恢復。</p>
+    <div class="small">短碼：<code id="d-code"></code></div>
+    <div class="small">標題：<span id="d-title"></span></div>
+    <div class="actions">
+      <button class="btn" id="btn-del-cancel">取消</button>
+      <button class="btn red" id="btn-del-confirm">刪除</button>
+    </div>
+    <div class="small" id="d-err" style="color:#fca5a5;margin-top:6px;min-height:18px"></div>
+  </div>
+</div>
+
 <script>
 let itemsByCode = {};        // 供編輯彈窗帶入資料
 let currentEditCode = null;  // 目前在編輯哪一筆
+let pendingDeleteCode = null;
 // ===== 登入保護 & 初始載入 =====
 (async () => {
   const meEl = document.getElementById("me");
@@ -189,32 +207,47 @@ async function loadList() {
     tbl.style.display = "table";
 
     for (const it of items) {
-    itemsByCode[it.code] = it; // ← 先把資料存起來，編輯時要帶入
-  
-    const hasApk = !!it.apk_key, hasIpa = !!it.ipa_key;
-    const today = (it.stats && it.stats.today) || 0;
-    const total = (it.stats && it.stats.total) || 0;
-  
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><code>${it.code}</code></td>
-      <td>${esc(it.title||"")}</td>
-      <td>${esc(it.version||"")}</td>
-      <td>
-        ${hasApk?'<span class="tag">APK</span>':''}
-        ${hasIpa?'<span class="tag">IPA</span>':''}
-      </td>
-      <td>${fmt(it.createdAt)}</td>
-      <td><span class="tag">${today}</span> / <span class="tag">${total}</span></td>
-      <td><button class="copy edit" data-code="${it.code}">編輯</button></td>  <!-- 新增 -->
-      <td>
-        <div class="small">
-          <a href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
-          <button class="copy" data-url="${absLink(it.code)}">複製</button>
-        </div>
-      </td>`;
-    tbody.appendChild(tr);
-  }
+      itemsByCode[it.code] = it;
+    
+      const hasApk = !!it.apk_key, hasIpa = !!it.ipa_key;
+      const S = it.stats || {};
+      const today = S.today || 0, total = S.total || 0;
+      const tApk = S.apk_today || 0, tIpa = S.ipa_today || 0;
+      const aApk = S.apk_total || 0, aIpa = S.ipa_total || 0;
+    
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><code>${it.code}</code></td>
+        <td>${esc(it.title||"")}</td>
+        <td>${esc(it.version||"")}</td>
+        <td>
+          ${hasApk?'<span class="tag">APK</span>':''}
+          ${hasIpa?'<span class="tag">IPA</span>':''}
+        </td>
+        <td>${fmt(it.createdAt)}</td>
+    
+        <td>
+          <div class="small2">
+            今日：<span class="tag">${today}</span>
+            （APK <span class="tag">${tApk}</span> ／ iOS <span class="tag">${tIpa}</span>）<br/>
+            總計：<span class="tag">${total}</span>
+            （APK <span class="tag">${aApk}</span> ／ iOS <span class="tag">${aIpa}</span>）
+          </div>
+        </td>
+    
+        <td>
+          <button class="copy edit" data-code="${it.code}">編輯</button>
+          <button class="copy danger del" data-code="${it.code}">刪除</button>
+        </td>
+    
+        <td>
+          <div class="small">
+            <a href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
+            <button class="copy" data-url="${absLink(it.code)}">複製</button>
+          </div>
+        </td>`;
+      tbody.appendChild(tr);
+    }
   } catch (err) {
     tbl.style.display = "none";
     empty.style.display = "block";
@@ -293,6 +326,50 @@ document.addEventListener('click', (ev) => {
   if (!btn) return;
   const code = btn.getAttribute('data-code');
   openEditModal(code);
+});
+
+// 事件委派：刪除
+document.addEventListener('click', (ev) => {
+  const btn = ev.target && ev.target.closest ? ev.target.closest('.del') : null;
+  if (!btn) return;
+  const code = btn.getAttribute('data-code');
+  openDeleteModal(code);
+});
+
+function openDeleteModal(code){
+  const it = itemsByCode[code];
+  if (!it) return alert('找不到資料');
+  pendingDeleteCode = code;
+  $('d-code').textContent = code;
+  $('d-title').textContent = it.title || '';
+  $('d-err').textContent = '';
+  $('modal-del').style.display = 'flex';
+}
+
+$('btn-del-cancel').addEventListener('click', ()=>{
+  $('modal-del').style.display = 'none';
+  pendingDeleteCode = null;
+});
+
+$('btn-del-confirm').addEventListener('click', async ()=>{
+  const code = pendingDeleteCode;
+  if (!code) return;
+  $('d-err').textContent = '刪除中…';
+  try {
+    const r = await fetch('/api/links/delete', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || '刪除失敗');
+    $('modal-del').style.display = 'none';
+    pendingDeleteCode = null;
+    await loadList(); // 重新讀取列表
+  } catch (e) {
+    $('d-err').textContent = String(e?.message || e);
+  }
 });
 
 // ===== 新增分發（Modal + 上傳 + 解析 IPA） =====
