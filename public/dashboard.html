@@ -109,13 +109,23 @@
 <script>
 // ===== 登入保護 & 初始載入 =====
 (async () => {
+  const meEl = document.getElementById("me");
   try {
     const r = await fetch("/api/auth/me", { credentials: "include" });
-    const me = await r.json();
-    if (!me.authenticated) { location.href = "/login.html?next=/dashboard.html"; return; }
-    document.getElementById("me").textContent = `目前登入：${me.email}`;
+    const txt = await r.text();
+    let me;
+    try { me = JSON.parse(txt); }
+    catch { throw new Error("/api/auth/me 非 JSON，回傳： " + txt.slice(0, 160)); }
+
+    if (!r.ok || !me?.authenticated) {
+      location.href = "/login.html?next=/dashboard.html";
+      return;
+    }
+    meEl.textContent = `目前登入：${me.email}`;
     await loadList();
-  } catch { location.href = "/login.html?next=/dashboard.html"; }
+  } catch (err) {
+    meEl.textContent = "載入失敗：" + (err?.message || err);
+  }
 })();
 
 // 登出
@@ -131,32 +141,53 @@ async function loadList() {
   const tbody = document.getElementById("tbody");
   const empty = document.getElementById("empty");
   tbody.innerHTML = "";
-  const r = await fetch("/api/links/list", { credentials: "include" });
-  const data = await r.json();
-  const items = Array.isArray(data.items) ? data.items : [];
-  if (!items.length) { tbl.style.display="none"; empty.style.display="block"; return; }
-  empty.style.display="none"; tbl.style.display="table";
-  for (const it of items) {
-    const hasApk = !!it.apk_key, hasIpa = !!it.ipa_key;
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><code>${it.code}</code></td>
-      <td>${esc(it.title||"")}</td>
-      <td>${esc(it.version||"")}</td>
-      <td>
-        ${hasApk?'<span class="tag">APK</span>':''}
-        ${hasIpa?'<span class="tag">IPA</span>':''}
-      </td>
-      <td>${fmt(it.createdAt)}</td>
-      <td>
-        <div class="small">
-          <a href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
-          <button class="copy" data-url="${absLink(it.code)}">複製</button>
-        </div>
-      </td>`;
-    tbody.appendChild(tr);
+
+  try {
+    const r = await fetch("/api/links/list", { credentials: "include" });
+    const txt = await r.text();
+    let data;
+    try { data = JSON.parse(txt); }
+    catch { throw new Error("/api/links/list 非 JSON，回傳： " + txt.slice(0, 160)); }
+
+    if (!r.ok) throw new Error(data?.error || "讀取清單失敗");
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (!items.length) {
+      tbl.style.display = "none";
+      empty.style.display = "block";
+      empty.textContent = "目前沒有分發，按右上「新增分發」開始。";
+      return;
+    }
+    empty.style.display = "none";
+    tbl.style.display = "table";
+
+    for (const it of items) {
+      const hasApk = !!it.apk_key, hasIpa = !!it.ipa_key;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><code>${it.code}</code></td>
+        <td>${esc(it.title||"")}</td>
+        <td>${esc(it.version||"")}</td>
+        <td>
+          ${hasApk?'<span class="tag">APK</span>':''}
+          ${hasIpa?'<span class="tag">IPA</span>':''}
+        </td>
+        <td>${fmt(it.createdAt)}</td>
+        <td>
+          <div class="small">
+            <a href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
+            <button class="copy" data-url="${absLink(it.code)}">複製</button>
+          </div>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+  } catch (err) {
+    tbl.style.display = "none";
+    empty.style.display = "block";
+    empty.textContent = "讀取失敗：" + (err?.message || err);
   }
 }
+
 function esc(s){return String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]))}
 function fmt(ts){if(!ts)return ""; const d=new Date(ts); return `${d.getFullYear()}-${(d.getMonth()+1+"").padStart(2,"0")}-${(d.getDate()+"").padStart(2,"0")} ${d.toTimeString().slice(0,8)}`;}
 function absLink(code){ return `${location.origin}/d/${code}`; }
