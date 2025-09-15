@@ -59,7 +59,7 @@
     <table id="tbl" style="display:none">
       <thead>
         <tr>
-          <th>短碼</th><th>標題</th><th>版本</th><th>檔案</th><th>建立時間</th><th>下載數</th><th>下載頁</th>
+          <th>短碼</th><th>標題</th><th>版本</th><th>檔案</th><th>建立時間</th><th>下載數</th><th>操作</th><th>下載頁</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -106,7 +106,34 @@
   </div>
 </div>
 
+<!-- 編輯分發 Modal -->
+<div class="modal" id="modal-edit">
+  <div class="panel">
+    <h3 style="margin:0 0 8px">編輯分發（顯示用欄位）</h3>
+    <p class="small">這些欄位僅影響下載頁顯示；iOS 安裝資訊仍以 IPA 內的 Info.plist 為準。</p>
+    <div class="row">
+      <div>
+        <label>標題</label>
+        <input id="e-title" type="text" placeholder="例如：My App" />
+      </div>
+      <div>
+        <label>版本</label>
+        <input id="e-version" type="text" placeholder="例如：1.0.0" />
+      </div>
+    </div>
+    <label>Bundle ID（顯示用）</label>
+    <input id="e-bundle" type="text" placeholder="例如：com.example.app" />
+    <div class="actions">
+      <button class="btn red" id="btn-edit-cancel">取消</button>
+      <button class="btn" id="btn-edit-save">儲存</button>
+    </div>
+    <div class="small" id="e-err" style="color:#fca5a5;margin-top:6px;min-height:18px"></div>
+  </div>
+</div>
+
 <script>
+let itemsByCode = {};        // 供編輯彈窗帶入資料
+let currentEditCode = null;  // 目前在編輯哪一筆
 // ===== 登入保護 & 初始載入 =====
 (async () => {
   const meEl = document.getElementById("me");
@@ -162,6 +189,8 @@ async function loadList() {
     tbl.style.display = "table";
 
     for (const it of items) {
+    itemsByCode[it.code] = it; // ← 先把資料存起來，編輯時要帶入
+  
     const hasApk = !!it.apk_key, hasIpa = !!it.ipa_key;
     const today = (it.stats && it.stats.today) || 0;
     const total = (it.stats && it.stats.total) || 0;
@@ -177,6 +206,7 @@ async function loadList() {
       </td>
       <td>${fmt(it.createdAt)}</td>
       <td><span class="tag">${today}</span> / <span class="tag">${total}</span></td>
+      <td><button class="copy edit" data-code="${it.code}">編輯</button></td>  <!-- 新增 -->
       <td>
         <div class="small">
           <a href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
@@ -196,6 +226,51 @@ function esc(s){return String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;","
 function fmt(ts){if(!ts)return ""; const d=new Date(ts); return `${d.getFullYear()}-${(d.getMonth()+1+"").padStart(2,"0")}-${(d.getDate()+"").padStart(2,"0")} ${d.toTimeString().slice(0,8)}`;}
 function absLink(code){ return `${location.origin}/d/${code}`; }
 
+function openEditModal(code){
+  const it = itemsByCode[code];
+  if (!it) return alert('找不到資料');
+
+  currentEditCode = code;
+  $('e-title').value   = it.title || '';
+  $('e-version').value = it.version || '';
+  $('e-bundle').value  = it.bundle_id || '';
+  $('e-err').textContent = '';
+  $('modal-edit').style.display = 'flex';
+}
+
+$('btn-edit-cancel').addEventListener('click', ()=>{
+  $('modal-edit').style.display = 'none';
+  currentEditCode = null;
+});
+
+$('btn-edit-save').addEventListener('click', async ()=>{
+  const code = currentEditCode;
+  if (!code) return;
+
+  const title     = $('e-title').value.trim();
+  const version   = $('e-version').value.trim();
+  const bundle_id = $('e-bundle').value.trim();
+
+  $('e-err').textContent = '儲存中…';
+
+  try {
+    const r = await fetch('/api/links/update', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code, title, version, bundle_id })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || '更新失敗');
+    $('modal-edit').style.display = 'none';
+    currentEditCode = null;
+    await loadList(); // 重新載入列表
+  } catch (e) {
+    $('e-err').textContent = String(e?.message || e);
+  }
+});
+
+  
 // 一鍵複製（事件委派）
 document.addEventListener('click', async (ev) => {
   const btn = ev.target && ev.target.closest ? ev.target.closest('.copy') : null;
