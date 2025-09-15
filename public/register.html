@@ -31,4 +31,31 @@ document.getElementById('btn').onclick = async () => {
   // 第 1 步先不送 API；第 2 步再接上 /api/auth/register
   location.href = "/login.html";
 };
+<script src="/app.js"></script>
+<script>
+const email = qs('email');
+const pw = qs('pw');
+const btn = qs('btn');
+const err = qs('err');
+
+btn.onclick = async () => {
+  err.textContent = '';
+  const em = (email.value || '').trim();
+  const pwd = pw.value || '';
+  if (!em || !pwd) { err.textContent = '請輸入 Email 與密碼'; return; }
+  if (pwd.length < 8) { err.textContent = '密碼至少 8 碼'; return; }
+
+  setBtnLoading(btn, true);
+  const { status, data } = await postJSON('/api/auth/register', { email: em, password: pwd });
+  setBtnLoading(btn, false);
+
+  if (status === 201) {
+    // 註冊 API 已幫你設置登入 cookie，直接進控制台
+    location.href = '/dashboard.html';
+  } else if (status === 409) {
+    err.textContent = '這個 Email 已被註冊';
+  } else {
+    err.textContent = data?.error || '發生錯誤，稍後再試';
+  }
+};
 </script>
