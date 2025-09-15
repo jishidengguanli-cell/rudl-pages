@@ -1,0 +1,43 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Upload test</title>
+<h1>R2 Upload</h1>
+<input type="file" id="f" />
+<select id="folder">
+  <option value="android">android</option>
+  <option value="ios">ios</option>
+</select>
+<button id="btn">上傳</button>
+<pre id="out"></pre>
+<script>
+const $ = (id)=>document.getElementById(id);
+$("btn").onclick = async () => {
+  const file = $("f").files[0];
+  if (!file) return alert("請選檔");
+  const folder = $("folder").value;
+
+  // 1) 向 Pages Functions 要預簽名 URL
+  const resp = await fetch("/api/upload/init", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      filename: file.name,
+      folder,
+      contentType: file.type || (file.name.endsWith(".apk") ? "application/vnd.android.package-archive" : "application/octet-stream")
+    }),
+  });
+  const data = await resp.json();
+  if (!data.uploadUrl) { $("out").textContent = JSON.stringify(data,null,2); return; }
+
+  // 2) 直接 PUT 到 R2
+  const up = await fetch(data.uploadUrl, {
+    method: "PUT",
+    headers: { "content-type": data.contentType },
+    body: file
+  });
+
+  $("out").textContent = up.ok
+    ? `✅ 上傳完成\nKey: ${data.key}\nCDN: https://cdn.rudownload.win/${data.key}`
+    : `❌ 上傳失敗 ${up.status} ${await up.text()}`;
+};
+</script>
