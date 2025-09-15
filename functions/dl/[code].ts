@@ -1,5 +1,5 @@
 // functions/dl/[code].ts
-// 計數 + 轉址
+// 計數 + 轉址（p=apk 或 p=ios）
 export interface Env {
   LINKS: KVNamespace;
 }
@@ -14,13 +14,9 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const raw = await ctx.env.LINKS.get(`link:${code}`);
   if (!raw) return new Response("Not Found", { status: 404, headers: noStore() });
 
-  const rec = JSON.parse(raw) as {
-    code: string;
-    apk_key?: string;
-    ipa_key?: string;
-  };
+  const rec = JSON.parse(raw) as { code: string; apk_key?: string; ipa_key?: string };
 
-  // 目的地
+  // 目標連結
   let destination = "";
   let type: "apk" | "ipa" | null = null;
 
@@ -34,42 +30,34 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     destination = `itms-services://?action=download-manifest&url=${encodeURIComponent(manifest)}`;
     type = "ipa";
   } else {
-    // 未指定參數就回 400（可改成導回下載頁）
     return new Response("Missing p=apk|ios", { status: 400, headers: noStore() });
   }
 
-  // 計數（不阻塞回應）
+  // 計數（非阻塞）
   if (type) ctx.waitUntil(incrCounters(ctx.env.LINKS, code, type));
 
-  // 302 轉址到真正下載
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: destination,
-      ...noStore(),
-    },
-  });
+  // 302 轉址
+  return new Response(null, { status: 302, headers: { Location: destination, ...noStore() } });
 };
 
-// ===== 工具：計數（簡單 KV，自然有小機率併發丟失，但一般流量足夠） =====
 async function incrCounters(KV: KVNamespace, code: string, type: "apk" | "ipa") {
   const now = Date.now();
   const yyyymmdd = new Date(now).toISOString().slice(0, 10).replace(/-/g, ""); // 20250915
 
-  // 總數（全部 / 每類）
+  // 總數（全部 / 各別）
   await add1(KV, `cnt:${code}:total`);
   await add1(KV, `cnt:${code}:${type}:total`);
 
-  // 今日（全部 / 每類），給 TTL 60 天，避免無限累積
-  const ttl = 60 * 24 * 60 * 60; // 60 天（秒）
+  // 今日（全部 / 各別）— 設 60 天 TTL
+  const ttl = 60 * 24 * 60 * 60; // 秒
   await add1(KV, `cnt:${code}:day:${yyyymmdd}`, ttl);
   await add1(KV, `cnt:${code}:${type}:day:${yyyymmdd}`, ttl);
 }
 
 async function add1(KV: KVNamespace, key: string, ttlSeconds?: number) {
   const cur = parseInt((await KV.get(key)) || "0", 10) || 0;
-  const putOpts = ttlSeconds ? { expirationTtl: ttlSeconds } : undefined;
-  await KV.put(key, String(cur + 1), putOpts as any);
+  const opts = ttlSeconds ? { expirationTtl: ttlSeconds } : undefined;
+  await KV.put(key, String(cur + 1), opts as any);
 }
 
 function noStore() {
