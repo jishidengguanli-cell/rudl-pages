@@ -8,7 +8,7 @@
   .card{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:24px}
   label{display:block;margin:10px 0 4px;color:#9ca3af}
   input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1222;color:#e5e7eb}
-  button{width:100%;padding:12px;border-radius:10px;border:0;background:#10b981;color:#0b1222;margin-top:16px;font-weight:700}
+  button{width:100%;padding:12px;border-radius:10px;border:0;background:#10b981;color:#0b1222;margin-top:16px;font-weight:700;cursor:pointer}
   a{color:#93c5fd;text-decoration:none}
   .err{color:#fca5a5;margin-top:8px;min-height:20px;white-space:pre-wrap}
 </style>
@@ -30,7 +30,7 @@
 const $ = id => document.getElementById(id);
 $("pw").addEventListener("keydown", e => { if (e.key === "Enter") $("btn").click(); });
 
-$("btn").onclick = async () => {
+$("btn").addEventListener("click", async () => {
   const email = $("email").value.trim();
   const password = $("pw").value;
   const err = $("err"); err.textContent = "";
@@ -45,23 +45,20 @@ $("btn").onclick = async () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, password })
     });
-    const data = await r.json().catch(()=>({}));
+    const data = await r.json().catch(() => ({}));
     if (!r.ok) {
-      if (data?.error === "email already registered" || r.status === 409) {
+      if (r.status === 409 || data?.error === "email already registered") {
         err.textContent = "此 Email 已被註冊";
-      } else if (data?.error) {
-        err.textContent = data.error;
       } else {
-        err.textContent = "註冊失敗，請稍後再試";
+        err.textContent = data?.error || "註冊失敗，請稍後再試";
       }
       return;
     }
-    // 註冊成功會同時設置 sid Cookie → 直接進 Dashboard
     location.href = "/dashboard.html";
   } catch (e) {
     err.textContent = String(e);
   } finally {
     $("btn").disabled = false; $("btn").textContent = "註冊";
   }
-};
+});
 </script>
