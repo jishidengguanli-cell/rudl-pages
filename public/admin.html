@@ -10,34 +10,46 @@
 <button id="btn">上傳</button>
 <pre id="out"></pre>
 <script>
-const $ = (id)=>document.getElementById(id);
+const $ = id => document.getElementById(id);
 $("btn").onclick = async () => {
   const file = $("f").files[0];
   if (!file) return alert("請選檔");
-  const folder = $("folder").value;
+  $("out").textContent = "初始化中...";
+  try {
+    // 1) 拿預簽名 URL
+    const r = await fetch("/api/upload/init", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        filename: file.name,
+        folder: $("folder").value,
+        contentType: file.type || (file.name.endsWith(".apk") ? "application/vnd.android.package-archive" : "application/octet-stream")
+      })
+    });
+    const data = await r.json().catch(()=>({error:"init not json"}));
+    if (!r.ok || !data.uploadUrl) {
+      $("out").textContent = "❌ init 失敗\n" + JSON.stringify(data, null, 2);
+      return;
+    }
 
-  // 1) 向 Pages Functions 要預簽名 URL
-  const resp = await fetch("/api/upload/init", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      filename: file.name,
-      folder,
-      contentType: file.type || (file.name.endsWith(".apk") ? "application/vnd.android.package-archive" : "application/octet-stream")
-    }),
-  });
-  const data = await resp.json();
-  if (!data.uploadUrl) { $("out").textContent = JSON.stringify(data,null,2); return; }
+    // 2) PUT 上傳到 R2
+    $("out").textContent = "上傳中...";
+    const up = await fetch(data.uploadUrl, {
+      method: "PUT",
+      headers: { "content-type": data.contentType },
+      body: file
+    });
 
-  // 2) 直接 PUT 到 R2
-  const up = await fetch(data.uploadUrl, {
-    method: "PUT",
-    headers: { "content-type": data.contentType },
-    body: file
-  });
-
-  $("out").textContent = up.ok
-    ? `✅ 上傳完成\nKey: ${data.key}\nCDN: https://cdn.rudownload.win/${data.key}`
-    : `❌ 上傳失敗 ${up.status} ${await up.text()}`;
+    if (!up.ok) {
+      const t = await up.text();
+      $("out").textContent = `❌ 上傳失敗 ${up.status}\n${t}`;
+      return;
+    }
+    $("out").textContent = `✅ 上傳完成！
+Key: ${data.key}
+CDN: https://cdn.rudownload.win/${data.key}`;
+  } catch (e) {
+    $("out").textContent = "❌ 例外: " + (e?.message || e);
+  }
 };
 </script>
