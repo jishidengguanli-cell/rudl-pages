@@ -31,4 +31,30 @@ document.getElementById('btn').onclick = async () => {
   // 第 1 步我們先不送 API，只做跳轉；第 2 步再接上 /api/auth/login
   location.href = "/dashboard.html";
 };
+<script src="/app.js"></script>
+<script>
+const email = qs('email');
+const pw = qs('pw');
+const btn = qs('btn');
+const err = qs('err');
+
+btn.onclick = async () => {
+  err.textContent = '';
+  const em = (email.value || '').trim();
+  const pwd = pw.value || '';
+  if (!em || !pwd) { err.textContent = '請輸入 Email 與密碼'; return; }
+
+  setBtnLoading(btn, true);
+  const { status, data } = await postJSON('/api/auth/login', { email: em, password: pwd });
+  setBtnLoading(btn, false);
+
+  if (status === 200) {
+    const next = new URLSearchParams(location.search).get('next') || '/dashboard.html';
+    location.href = next;
+  } else if (status === 401) {
+    err.textContent = '帳號或密碼不正確';
+  } else {
+    err.textContent = data?.error || '發生錯誤，稍後再試';
+  }
+};
 </script>
