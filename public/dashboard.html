@@ -35,26 +35,26 @@
 </main>
 
 <script>
-// 載入即檢查登入，未登入導回 login.html?next=/dashboard.html
+// 載入即檢查登入（未登入導回 login.html?next=/dashboard.html）
 (async () => {
   try {
-    const r = await fetch("/api/auth/me", { credentials: "same-origin" });
+    const r = await fetch("/api/auth/me", { credentials: "include" });
     const me = await r.json();
     if (!me.authenticated) {
       location.href = "/login.html?next=/dashboard.html";
       return;
     }
     document.getElementById("me").textContent = `目前登入：${me.email}`;
-  } catch (e) {
+  } catch {
     location.href = "/login.html?next=/dashboard.html";
   }
 })();
 
-// 「登出」一定綁事件＋阻止預設跳轉
+// 登出（確保帶 cookie）
 document.getElementById("logout").addEventListener("click", async (e) => {
   e.preventDefault();
   try {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
   } catch {}
   location.href = "/login.html";
 });
