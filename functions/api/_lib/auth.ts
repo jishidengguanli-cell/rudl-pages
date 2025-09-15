@@ -45,18 +45,23 @@ export type SessionPayload = { uid: string; email: string; exp: number };
 export async function signSession(secret: string, p: SessionPayload): Promise<string> {
   const header = { alg: "HS256", typ: "JWT" };
   const data = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(p))}`;
+  // hmacSha256 已經回傳 base64url 字串了，不要再做一次 b64url() ！
   const sig = await hmacSha256(secret, data);
-  return `${data}.${b64url(sig)}`;
+  return `${data}.${sig}`;
 }
+
 export async function verifySession(secret: string, token: string): Promise<SessionPayload | null> {
   const [h, p, s] = token.split(".");
   if (!h || !p || !s) return null;
-  const expSig = await hmacSha256(secret, `${h}.${p}`);
-  if (!timingSafeEqual(b64urld(expSig), b64urld(s))) return null;
+  // 直接比對 base64url 字串
+  const expected = await hmacSha256(secret, `${h}.${p}`);
+  if (!timingSafeEqual(expected, s)) return null;
+
   const payload = JSON.parse(new TextDecoder().decode(b64urldBytes(p))) as SessionPayload;
   if (payload.exp * 1000 < Date.now()) return null;
   return payload;
 }
+
 async function hmacSha256(secret: string, data: string): Promise<string> {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
