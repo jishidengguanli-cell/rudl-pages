@@ -1,9 +1,14 @@
+// functions/api/links/create.ts
 import { readCookie, verifySession, Env as AuthEnv } from "../_lib/auth";
 
 export interface Env extends AuthEnv {
   LINKS: KVNamespace;
 }
 
+// 建立一個分發：產生短碼、寫入 LINKS、把短碼掛到使用者清單
+// 輸入: { title?, version?, bundle_id?, apkKey?, ipaKey?, ipaMeta? }
+// - 顯示用：title/version/bundle_id
+// - 安裝用：ipaMeta.bundle_id / ipaMeta.version（由前端自動解析）
 export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   try {
     const { LINKS, SESSION_SECRET } = ctx.env;
@@ -16,16 +21,20 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     // 2) 解析輸入
     const b = await ctx.request.json<any>().catch(() => ({}));
     const title = (b.title || "").toString().slice(0, 100);
-    const version_display = (b.version || "").toString().slice(0, 50);      // 只用來顯示
-    const bundle_display  = (b.bundle_id || "").toString().slice(0, 200);   // 只用來顯示
-    const ios_bundle_id   = (b.iosBundleId || "").toString().slice(0, 200); // 解析自 IPA，用於安裝
-    const ios_version     = (b.iosVersion || "").toString().slice(0, 50);   // 解析自 IPA，用於安裝
-
+    const version = (b.version || "").toString().slice(0, 50);       // 顯示用
+    const bundle_id = (b.bundle_id || "").toString().slice(0, 200);  // 顯示用
     const apk_key = b.apkKey ? String(b.apkKey) : "";
     const ipa_key = b.ipaKey ? String(b.ipaKey) : "";
+
+    // 自動偵測（可選）
+    const ipaMeta = b.ipaMeta && typeof b.ipaMeta === "object" ? {
+      bundle_id: String(b.ipaMeta.bundle_id || ""),
+      version:   String(b.ipaMeta.version   || "")
+    } : null;
+
     if (!apk_key && !ipa_key) return j({ error: "apkKey or ipaKey required" }, 400);
 
-    // 3) 產生唯一短碼（4碼）
+    // 3) 產生唯一短碼（預設 4 碼，避免碰撞重試）
     let code = "";
     for (let i = 0; i < 8; i++) {
       const c = code4();
@@ -39,29 +48,27 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
       id: code,
       code,
       owner: me.uid,
-      // 顯示用
-      title,
-      version: version_display,
-      bundle_id: bundle_display,
-      // 安裝用（來自 IPA 的權威值）
-      ios_bundle_id,
-      ios_version,
-      // 檔案
+      title,      // 顯示用
+      version,    // 顯示用
+      bundle_id,  // 顯示用
       apk_key,
       ipa_key,
+      ipaMeta,    // ★ 安裝用（/m 會優先取此處）
       createdAt: now,
       updatedAt: now
     };
 
+    // 4) 寫入主資料
     await LINKS.put(`link:${code}`, JSON.stringify(rec));
 
-    // 使用者清單
+    // 5) 把短碼掛到使用者清單（每行一個 code）
     const listKey = `user:${me.uid}:codes`;
     const existing = (await LINKS.get(listKey)) || "";
     const set = new Set(existing.split("\n").filter(Boolean));
     set.add(code);
     await LINKS.put(listKey, Array.from(set).join("\n"));
 
+    // 6) 回傳
     return new Response(JSON.stringify({ code, url: `/d/${code}` }), {
       status: 201,
       headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
