@@ -10,7 +10,7 @@
   input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1222;color:#e5e7eb}
   button{width:100%;padding:12px;border-radius:10px;border:0;background:#3b82f6;color:#fff;margin-top:16px;font-weight:600}
   a{color:#93c5fd;text-decoration:none}
-  .err{color:#fca5a5;margin-top:8px;min-height:20px}
+  .err{color:#fca5a5;margin-top:8px;min-height:20px;white-space:pre-wrap}
 </style>
 
 <div class="wrap">
@@ -27,34 +27,36 @@
 </div>
 
 <script>
-document.getElementById('btn').onclick = async () => {
-  // 第 1 步我們先不送 API，只做跳轉；第 2 步再接上 /api/auth/login
-  location.href = "/dashboard.html";
-};
-<script src="/app.js"></script>
-<script>
-const email = qs('email');
-const pw = qs('pw');
-const btn = qs('btn');
-const err = qs('err');
+const $ = id => document.getElementById(id);
+$("pw").addEventListener("keydown", e => { if (e.key === "Enter") $("btn").click(); });
 
-btn.onclick = async () => {
-  err.textContent = '';
-  const em = (email.value || '').trim();
-  const pwd = pw.value || '';
-  if (!em || !pwd) { err.textContent = '請輸入 Email 與密碼'; return; }
+$("btn").onclick = async () => {
+  const email = $("email").value.trim();
+  const password = $("pw").value;
+  const err = $("err"); err.textContent = "";
 
-  setBtnLoading(btn, true);
-  const { status, data } = await postJSON('/api/auth/login', { email: em, password: pwd });
-  setBtnLoading(btn, false);
+  if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return err.textContent = "請輸入正確的 Email";
+  if (password.length < 8) return err.textContent = "密碼至少 8 碼";
 
-  if (status === 200) {
-    const next = new URLSearchParams(location.search).get('next') || '/dashboard.html';
-    location.href = next;
-  } else if (status === 401) {
-    err.textContent = '帳號或密碼不正確';
-  } else {
-    err.textContent = data?.error || '發生錯誤，稍後再試';
+  $("btn").disabled = true; $("btn").textContent = "登入中…";
+  try {
+    const r = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await r.json().catch(()=>({}));
+    if (!r.ok) {
+      err.textContent = data?.error === "invalid credentials" ? "帳號或密碼錯誤" : "登入失敗，請稍後再試";
+      return;
+    }
+    // 如果 URL 上有 next=? 就跳去該頁；否則進 Dashboard
+    const p = new URLSearchParams(location.search);
+    location.href = p.get("next") || "/dashboard.html";
+  } catch (e) {
+    err.textContent = String(e);
+  } finally {
+    $("btn").disabled = false; $("btn").textContent = "登入";
   }
 };
 </script>
