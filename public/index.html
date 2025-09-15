@@ -1,5 +1,59 @@
 <!doctype html>
-<meta charset="utf-8">
-<title>rudl-pages</title>
-<h1>rudl-pages is ready</h1>
-<p>這是 Cloudflare Pages 首頁。下載頁請用 /d/:code。</p>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RU Download</title>
+<style>
+  :root { --bg:#0f172a; --card:#111827; --fg:#e5e7eb; --muted:#9ca3af; --ac:#3b82f6; }
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, sans-serif}
+  header{position:sticky;top:0;background:#0b1222;border-bottom:1px solid #1f2937}
+  .wrap{max-width:980px;margin:0 auto;padding:16px}
+  nav{display:flex;align-items:center;gap:12px}
+  nav .right{margin-left:auto;display:flex;gap:10px}
+  a{color:var(--fg);text-decoration:none} a.btn{background:var(--ac);padding:8px 14px;border-radius:10px;color:#fff}
+  main .hero{padding:56px 0}
+  .card{background:var(--card);border:1px solid #1f2937;border-radius:16px;padding:24px}
+  select{background:#0b1222;color:var(--fg);border:1px solid #334155;border-radius:8px;padding:6px 8px}
+  footer{color:var(--muted);border-top:1px solid #1f2937;margin-top:48px}
+</style>
+
+<header>
+  <div class="wrap">
+    <nav>
+      <strong>RU Download</strong>
+      <div class="right">
+        <label>🌐
+          <select id="lang">
+            <option value="zh">繁中</option>
+            <option value="en">English</option>
+            <option value="ru">Русский</option>
+          </select>
+        </label>
+        <a href="/login.html">登入</a>
+        <a class="btn" href="/register.html">註冊</a>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <div class="card">
+      <h1>輕鬆分發 APK / IPA</h1>
+      <p>上傳安裝檔，一鍵產生下載頁（/d/短碼），支援 iOS <code>itms-services</code> 與 Android 直連下載。底層用 Cloudflare Pages + R2 + KV，全球加速。</p>
+      <p><a class="btn" href="/register.html">立即開始</a></p>
+      <p style="color:#9ca3af">* 本頁面先做為展示，登入後會有控制台與分發列表。</p>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  <p>© <span id="y"></span> RU Download</p>
+</footer>
+
+<script>
+  // 簡單的語言選擇 UI（先僅存在 localStorage，之後再串真多語內容）
+  const sel = document.getElementById('lang');
+  sel.value = localStorage.getItem('lang') || 'zh';
+  sel.onchange = () => { localStorage.setItem('lang', sel.value); location.reload(); };
+  document.getElementById('y').textContent = new Date().getFullYear();
+</script>
