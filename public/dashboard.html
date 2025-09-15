@@ -31,6 +31,91 @@
   .bar>i{display:block;height:100%;width:0;background:#3b82f6}
   .small{font-size:12px;color:#9ca3af}
   .copy{margin-left:8px;padding:4px 8px;background:#374151;border:1px solid #4b5563;border-radius:8px;color:#e5e7eb;cursor:pointer;font-size:12px}
+  /* 外層卡片更寬、更置中 */
+  #list-panel{
+    max-width: 1280px;       /* 原來較窄 → 放大 */
+    margin: 0 auto;          /* 置中 */
+  }
+  
+  /* 表格做成「卡片列」：行距、圓角、陰影 */
+  #tbl{
+    width: 100%;
+    table-layout: fixed;           /* 讓欄寬可控 */
+    border-collapse: separate;     /* 分離模式才能做卡片行距 */
+    border-spacing: 0 12px;        /* 列與列之間的縫隙 */
+  }
+  
+  /* 標題列（置頂、稍微放大） */
+  #tbl thead th{
+    position: sticky; top: 0;
+    background: #0f172a;           /* 你的深色主題 */
+    z-index: 1;
+    font-weight: 600;
+    font-size: 14.5px;
+    padding: 12px 14px;
+  }
+  
+  /* 每列像卡片：圓角+內距 */
+  #tbl tbody td{
+    background: #0b1220;           /* 比背景再亮一點 */
+    padding: 14px 16px;
+    vertical-align: middle;
+    font-size: 14.5px;
+    line-height: 1.6;
+  }
+  #tbl tbody tr:hover td{ background:#0f1830; }
+  #tbl tbody td:first-child{ border-radius: 12px 0 0 12px; }
+  #tbl tbody td:last-child{  border-radius: 0 12px 12px 0; }
+  
+  /* 欄寬（依你目前 8 欄；若欄位數不同，下面的 nth-child 數字調整一下） */
+  #tbl th:nth-child(1), #tbl td:nth-child(1){ width: 96px;  }   /* 短碼 */
+  #tbl th:nth-child(2), #tbl td:nth-child(2){ width: 200px; }   /* 標題 */
+  #tbl th:nth-child(3), #tbl td:nth-child(3){ width: 90px;  }   /* 版本 */
+  #tbl th:nth-child(4), #tbl td:nth-child(4){ width: 110px; }   /* 檔案 */
+  #tbl th:nth-child(5), #tbl td:nth-child(5){ width: 180px; }   /* 建立時間 */
+  #tbl th:nth-child(6), #tbl td:nth-child(6){ width: 300px; }   /* 下載數（較寬，多行） */
+  #tbl th:nth-child(7), #tbl td:nth-child(7){ width: 160px; }   /* 操作 */
+  #tbl th:nth-child(8), #tbl td:nth-child(8){ width: 320px; }   /* 下載頁（可截斷） */
+  
+  /* 讓「標題、下載頁」不換行且可截斷，避免擠壓 */
+  #tbl td:nth-child(2),
+  #tbl td:nth-child(8){
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  /* 小徽章/按鈕間距 */
+  .tag{ margin-right: 6px; margin-top: 4px; display: inline-flex; }
+  .copy, .edit, .danger{ margin-right: 8px; }
+  .small2{ font-size: 12.5px; color:#9ca3af; line-height: 1.7; }
+  
+  /* 讓整體更鬆一點 */
+  .panel h3{ margin-bottom: 14px; }
+  
+  /* 行動版（選配）：小於 960px 改成卡片堆疊，可刪掉 */
+  @media (max-width: 960px){
+    #tbl thead{ display:none; }
+    #tbl, #tbl tbody, #tbl tr, #tbl td{
+      display:block; width: 100%;
+    }
+    #tbl tbody td{
+      border-radius: 8px !important;
+      padding: 10px 12px;
+    }
+    #tbl tbody tr{ margin-bottom: 12px; }
+  }
+  @media (max-width: 960px){
+    #tbl thead{ display:none; }
+    #tbl, #tbl tbody, #tbl tr, #tbl td{
+      display:block; width:100%;
+    }
+    #tbl tbody td{
+      border-radius: 8px !important;
+      padding: 10px 12px;
+    }
+    #tbl tbody tr{ margin-bottom: 12px; }
+  }
 </style>
 
 <header>
@@ -46,7 +131,7 @@
 </header>
 
 <main class="wrap">
-  <div class="card">
+  <div class="card" id="list-panel">
     <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
       <div>
         <h2 style="margin:0 0 6px">分發列表</h2>
