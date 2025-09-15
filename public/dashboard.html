@@ -36,4 +36,15 @@
 <script>
 // 第 1 步先不檢查登入；第 2 步會透過 /api/auth/me 驗證，沒登入就導回 /login.html
 document.getElementById('logout').onclick = () => { location.href = "/login.html"; };
+<script src="/app.js"></script>
+<script>
+(async () => {
+  try {
+    const me = await Auth.require(); // 未登入會自動導回 login.html
+    document.getElementById('me').textContent = `登入帳號：${me.email}`;
+  } catch (_) {
+    // 已導走
+  }
+})();
+document.getElementById('logout').onclick = (e) => { e.preventDefault(); Auth.logout(); };
 </script>
