@@ -8,7 +8,7 @@ export interface Env {
 }
 
 // ===== Password hashing (PBKDF2-SHA256) =====
-const ITER = 130_000;              // 13萬次
+const ITER = 100_000;              // 13萬次
 const SALT_BYTES = 16;             // 128-bit
 const KEYLEN = 32;                 // 256-bit
 
