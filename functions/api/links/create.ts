@@ -4,9 +4,6 @@ export interface Env extends AuthEnv {
   LINKS: KVNamespace;
 }
 
-// 建立一個分發：產生短碼、寫入 LINKS、把短碼掛到使用者清單
-// 輸入: { title?, version?, bundle_id?, apkKey?, ipaKey? }
-// apkKey / ipaKey 是你 R2 的 key，例如: "android/App-test123.apk"
 export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   try {
     const { LINKS, SESSION_SECRET } = ctx.env;
@@ -19,14 +16,16 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     // 2) 解析輸入
     const b = await ctx.request.json<any>().catch(() => ({}));
     const title = (b.title || "").toString().slice(0, 100);
-    const version = (b.version || "").toString().slice(0, 50);
-    const bundle_id = (b.bundle_id || "").toString().slice(0, 200);
+    const version_display = (b.version || "").toString().slice(0, 50);      // 只用來顯示
+    const bundle_display  = (b.bundle_id || "").toString().slice(0, 200);   // 只用來顯示
+    const ios_bundle_id   = (b.iosBundleId || "").toString().slice(0, 200); // 解析自 IPA，用於安裝
+    const ios_version     = (b.iosVersion || "").toString().slice(0, 50);   // 解析自 IPA，用於安裝
+
     const apk_key = b.apkKey ? String(b.apkKey) : "";
     const ipa_key = b.ipaKey ? String(b.ipaKey) : "";
-
     if (!apk_key && !ipa_key) return j({ error: "apkKey or ipaKey required" }, 400);
 
-    // 3) 產生唯一短碼（預設 4 碼）
+    // 3) 產生唯一短碼（4碼）
     let code = "";
     for (let i = 0; i < 8; i++) {
       const c = code4();
@@ -40,26 +39,29 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
       id: code,
       code,
       owner: me.uid,
+      // 顯示用
       title,
-      version,
-      bundle_id,
+      version: version_display,
+      bundle_id: bundle_display,
+      // 安裝用（來自 IPA 的權威值）
+      ios_bundle_id,
+      ios_version,
+      // 檔案
       apk_key,
       ipa_key,
       createdAt: now,
       updatedAt: now
     };
 
-    // 4) 寫入主資料
     await LINKS.put(`link:${code}`, JSON.stringify(rec));
 
-    // 5) 把短碼掛到使用者清單（每行一個 code）
+    // 使用者清單
     const listKey = `user:${me.uid}:codes`;
     const existing = (await LINKS.get(listKey)) || "";
     const set = new Set(existing.split("\n").filter(Boolean));
     set.add(code);
     await LINKS.put(listKey, Array.from(set).join("\n"));
 
-    // 6) 回傳
     return new Response(JSON.stringify({ code, url: `/d/${code}` }), {
       status: 201,
       headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
