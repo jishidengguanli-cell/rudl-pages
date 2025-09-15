@@ -9,9 +9,25 @@
   nav{display:flex;align-items:center;gap:12px}
   nav .right{margin-left:auto;display:flex;gap:10px}
   a{color:#93c5fd;text-decoration:none}
-  .btn{padding:8px 12px;border-radius:10px;border:0;background:#ef4444;color:#fff;cursor:pointer}
+  .btn{padding:8px 12px;border-radius:10px;border:0;background:#3b82f6;color:#fff;cursor:pointer}
+  .btn.red{background:#ef4444}
   .card{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:24px;margin-top:20px}
   .muted{color:#9ca3af}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{border-bottom:1px solid #1f2937;padding:10px;text-align:left}
+  th{color:#9ca3af;font-weight:600}
+  .tag{display:inline-block;padding:2px 8px;border-radius:999px;background:#0b1222;border:1px solid #334155;color:#e5e7eb;font-size:12px}
+  .right-ctrls{display:flex;gap:8px}
+  /* Modal */
+  .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.5);z-index:50}
+  .modal .panel{width:min(680px,92vw);background:#111827;border:1px solid #1f2937;border-radius:16px;padding:20px}
+  label{display:block;margin:10px 0 4px;color:#9ca3af}
+  input[type="text"],input[type="file"]{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1222;color:#e5e7eb}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+  .bar{height:6px;background:#0b1222;border:1px solid #334155;border-radius:999px;overflow:hidden}
+  .bar>i{display:block;height:100%;width:0;background:#3b82f6}
+  .small{font-size:12px;color:#9ca3af}
 </style>
 
 <header>
@@ -28,34 +44,209 @@
 
 <main class="wrap">
   <div class="card">
-    <h2 style="margin-top:0">歡迎！</h2>
-    <p id="me" class="muted">讀取中…</p>
-    <p class="muted">下一步我們會在這裡加入「分發列表」與「新增分發」。</p>
+    <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+      <div>
+        <h2 style="margin:0 0 6px">分發列表</h2>
+        <div id="me" class="muted">讀取中…</div>
+      </div>
+      <div class="right-ctrls">
+        <button class="btn" id="btn-new">➕ 新增分發</button>
+      </div>
+    </div>
+
+    <div id="empty" class="muted" style="margin-top:14px;display:none">目前沒有分發，按右上「新增分發」開始。</div>
+    <table id="tbl" style="display:none">
+      <thead>
+        <tr>
+          <th>短碼</th><th>標題</th><th>版本</th><th>檔案</th><th>建立時間</th><th>連結</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
   </div>
 </main>
 
+<!-- 新增分發 Modal -->
+<div class="modal" id="modal">
+  <div class="panel">
+    <h3 style="margin:0 0 8px">新增分發</h3>
+    <p class="small">上傳 APK 或 IPA（可擇一或兩者都上傳）。上傳完成後會建立一個短碼。</p>
+    <div class="row">
+      <div>
+        <label>標題（可選）</label>
+        <input id="title" type="text" placeholder="例如：My App" />
+      </div>
+      <div>
+        <label>版本（可選）</label>
+        <input id="version" type="text" placeholder="例如：1.0.0" />
+      </div>
+    </div>
+    <label>Bundle ID（可選）</label>
+    <input id="bundle" type="text" placeholder="例如：com.example.app" />
+    <div class="row" style="margin-top:8px">
+      <div>
+        <label>APK 檔（android）</label>
+        <input id="apk" type="file" accept=".apk" />
+        <div class="bar" style="margin-top:8px"><i id="p-apk"></i></div>
+        <div class="small" id="t-apk"></div>
+      </div>
+      <div>
+        <label>IPA 檔（iOS）</label>
+        <input id="ipa" type="file" accept=".ipa" />
+        <div class="bar" style="margin-top:8px"><i id="p-ipa"></i></div>
+        <div class="small" id="t-ipa"></div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn red" id="btn-cancel">取消</button>
+      <button class="btn" id="btn-create">上傳並建立</button>
+    </div>
+    <div class="small" id="err" style="color:#fca5a5;margin-top:6px;min-height:18px"></div>
+  </div>
+</div>
+
 <script>
-// 載入即檢查登入（未登入導回 login.html?next=/dashboard.html）
+// ===== 登入保護 & 初始載入 =====
 (async () => {
   try {
     const r = await fetch("/api/auth/me", { credentials: "include" });
     const me = await r.json();
-    if (!me.authenticated) {
-      location.href = "/login.html?next=/dashboard.html";
-      return;
-    }
+    if (!me.authenticated) { location.href = "/login.html?next=/dashboard.html"; return; }
     document.getElementById("me").textContent = `目前登入：${me.email}`;
-  } catch {
-    location.href = "/login.html?next=/dashboard.html";
-  }
+    await loadList();
+  } catch { location.href = "/login.html?next=/dashboard.html"; }
 })();
 
-// 登出（確保帶 cookie）
+// 登出
 document.getElementById("logout").addEventListener("click", async (e) => {
   e.preventDefault();
-  try {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-  } catch {}
+  try { await fetch("/api/auth/logout", { method:"POST", credentials:"include" }); } catch {}
   location.href = "/login.html";
 });
+
+// ===== 分發列表 =====
+async function loadList() {
+  const tbl = document.getElementById("tbl");
+  const tbody = document.getElementById("tbody");
+  const empty = document.getElementById("empty");
+  tbody.innerHTML = "";
+  const r = await fetch("/api/links/list", { credentials: "include" });
+  const data = await r.json();
+  const items = Array.isArray(data.items) ? data.items : [];
+  if (!items.length) { tbl.style.display="none"; empty.style.display="block"; return; }
+  empty.style.display="none"; tbl.style.display="table";
+  for (const it of items) {
+    const hasApk = !!it.apk_key, hasIpa = !!it.ipa_key;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><code>${it.code}</code></td>
+      <td>${esc(it.title||"")}</td>
+      <td>${esc(it.version||"")}</td>
+      <td>
+        ${hasApk?'<span class="tag">APK</span>':''}
+        ${hasIpa?'<span class="tag">IPA</span>':''}
+      </td>
+      <td>${fmt(it.createdAt)}</td>
+      <td>
+        <div class="small">
+          <div>下載頁：<code>/d/${it.code}</code>（下一步開通）</div>
+          ${hasApk?`<div>APK：<a href="${cdnUrl(it.apk_key)}" target="_blank">cdn/.../${short(it.apk_key)}</a></div>`:""}
+          ${hasIpa?`<div>IPA：<a href="${cdnUrl(it.ipa_key)}" target="_blank">cdn/.../${short(it.ipa_key)}</a></div>`:""}
+        </div>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+function esc(s){return String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]))}
+function fmt(ts){if(!ts)return ""; const d=new Date(ts); return `${d.getFullYear()}-${(d.getMonth()+1+"").padStart(2,"0")}-${(d.getDate()+"").padStart(2,"0")} ${d.toTimeString().slice(0,8)}`;}
+function cdnUrl(key){ return `https://cdn.rudownload.win/${key}`; }
+function short(p){ return String(p).split("/").slice(-2).join("/"); }
+
+// ===== 新增分發（Modal + 上傳） =====
+const modal = document.getElementById("modal");
+document.getElementById("btn-new").addEventListener("click", ()=>{ modal.style.display="flex"; resetModal(); });
+document.getElementById("btn-cancel").addEventListener("click", ()=>{ modal.style.display="none"; });
+
+function resetModal(){
+  $("title").value = ""; $("version").value = ""; $("bundle").value = "";
+  $("apk").value = ""; $("ipa").value = "";
+  $("p-apk").style.width = "0%"; $("p-ipa").style.width = "0%";
+  $("t-apk").textContent = ""; $("t-ipa").textContent = "";
+  $("err").textContent = "";
+}
+
+document.getElementById("btn-create").addEventListener("click", async ()=>{
+  const title = $("title").value.trim();
+  const version = $("version").value.trim();
+  const bundle = $("bundle").value.trim();
+  const apkFile = $("apk").files[0];
+  const ipaFile = $("ipa").files[0];
+  const err = $("err"); err.textContent = "";
+
+  if (!apkFile && !ipaFile) { err.textContent = "請至少選擇一個檔案（APK 或 IPA）。"; return; }
+
+  // 逐一上傳（APK -> IPA）
+  let apkKey = "", ipaKey = "";
+  try {
+    if (apkFile) {
+      $("t-apk").textContent = "初始化上傳…";
+      apkKey = await uploadFile(apkFile, "android", $("p-apk"), p => $("t-apk").textContent = p);
+    }
+    if (ipaFile) {
+      $("t-ipa").textContent = "初始化上傳…";
+      ipaKey = await uploadFile(ipaFile, "ios", $("p-ipa"), p => $("t-ipa").textContent = p);
+    }
+  } catch(e){ err.textContent = "上傳失敗：" + (e?.message || e); return; }
+
+  // 建立分發
+  try {
+    const r = await fetch("/api/links/create", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title, version, bundle_id: bundle, apkKey, ipaKey })
+    });
+    const data = await r.json();
+    if (!r.ok) { throw new Error(data?.error || "建立分發失敗"); }
+    modal.style.display = "none";
+    await loadList();
+  } catch(e){ err.textContent = String(e); }
+});
+
+// 呼叫 /api/upload/init 取得預簽名 URL，並用 XHR PUT 上傳（可顯示進度）
+async function uploadFile(file, folder, barEl, setText){
+  setText("請求預簽名 URL…");
+  const init = await fetch("/api/upload/init", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      filename: file.name,
+      folder,
+      contentType: file.type || (folder==="android" ? "application/vnd.android.package-archive" : "application/octet-stream")
+    })
+  }).then(r => r.json());
+  if (!init?.uploadUrl || !init?.key) throw new Error("取得預簽名 URL 失敗");
+
+  setText("上傳中… 0%");
+  await xhrPut(init.uploadUrl, file, init.contentType, (pct) => {
+    barEl.style.width = pct + "%";
+    setText("上傳中… " + pct + "%");
+  });
+  setText("完成");
+  return init.key; // 回傳 R2 key
+}
+
+function xhrPut(url, file, contentType, onProgress){
+  return new Promise((resolve, reject)=>{
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url, true);
+    if (contentType) xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (e)=>{ if (e.lengthComputable && onProgress) onProgress(Math.round(e.loaded*100/e.total)); };
+    xhr.onload = ()=>{ (xhr.status>=200 && xhr.status<300) ? resolve(null) : reject(new Error("HTTP "+xhr.status+" "+xhr.responseText)); };
+    xhr.onerror = ()=> reject(new Error("Network error"));
+    xhr.send(file);
+  });
+}
+
+function $(id){ return document.getElementById(id); }
 </script>
