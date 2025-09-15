@@ -11,11 +11,16 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     code: string; title?: string; version?: string; bundle_id?: string; ipa_key?: string;
   };
   if (!rec.ipa_key) return notFound();
+  
 
-  const ipaUrl = `https://cdn.rudownload.win/${encodeURI(rec.ipa_key)}`;
-  const title = rec.title || "App";
-  const version = rec.version || "1.0";
-  const bundle = rec.bundle_id || `com.unknown.${rec.code}`;
+  const title   = rec.title || "App";
+  const meta    = (rec as any).ipaMeta || {}; // 新增：自動偵測結果會放這裡
+  const bundle  = meta.bundle_id || rec.bundle_id || `com.unknown.${rec.code}`;
+  const version = meta.version    || rec.version    || "1.0";
+  const ipaUrl  = `https://cdn.rudownload.win/${encodeURI(rec.ipa_key)}`;
+  // const title = rec.title || "App";
+  // const version = rec.version || "1.0";
+  // const bundle = rec.bundle_id || `com.unknown.${rec.code}`;
 
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
