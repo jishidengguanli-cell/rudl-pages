@@ -8,16 +8,20 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const raw = await ctx.env.LINKS.get(`link:${code}`);
   if (!raw) return notFound();
   const rec = JSON.parse(raw) as {
-    code: string; title?: string; version?: string; bundle_id?: string; ipa_key?: string; ipaMeta?: { bundle_id?: string; version?: string };
+    code: string;
+    title?: string;
+    version?: string;   // 顯示用
+    bundle_id?: string; // 顯示用
+    ipa_key?: string;
+    ipaMeta?: { bundle_id?: string; version?: string };
   };
   if (!rec.ipa_key) return notFound();
 
-  // ★ 使用 ipaMeta 優先（自動偵測），用戶填寫的 version/bundle_id 僅作展示
   const title   = rec.title || "App";
   const meta    = rec.ipaMeta || {};
+  // 優先使用 ipaMeta（自動偵測），其次才用顯示欄位；兩者都沒有才給預設
   const bundle  = meta.bundle_id || rec.bundle_id || `com.unknown.${rec.code}`;
   const version = meta.version    || rec.version    || "1.0";
-
   const ipaUrl  = `https://cdn.rudownload.win/${encodeURI(rec.ipa_key)}`;
 
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
