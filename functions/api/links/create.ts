@@ -1,60 +1,94 @@
-// functions/m/[code].ts
-export interface Env { LINKS: KVNamespace }
+// functions/api/links/create.ts
+import { readCookie, verifySession, Env as AuthEnv } from "../_lib/auth";
 
-export const onRequestGet: PagesFunction<Env> = async (ctx) => {
-  const code = ctx.params?.code as string;
-  if (!code) return notFound();
+export interface Env extends AuthEnv {
+  LINKS: KVNamespace;
+}
 
-  const raw = await ctx.env.LINKS.get(`link:${code}`);
-  if (!raw) return notFound();
-  const rec = JSON.parse(raw) as {
-    code: string; title?: string; version?: string; bundle_id?: string; ipa_key?: string;
-    ipaMeta?: { bundle_id?: string; version?: string };
-  };
-  if (!rec.ipa_key) return notFound();
+// 建立一個分發：產生短碼、寫入 LINKS、把短碼掛到使用者清單
+// 輸入: { title?, version?, bundle_id?, apkKey?, ipaKey?, ipaMeta? }
+// - apkKey / ipaKey：你的 R2 key，例如 "android/App-123.apk" / "ios/App-456.ipa"
+// - ipaMeta：由前端解析 IPA 得到的 { bundle_id, version }，將供 /m/:code 產生 manifest 時優先使用
+export const onRequestPost: PagesFunction<Env> = async (ctx) => {
+  try {
+    const { LINKS, SESSION_SECRET } = ctx.env;
 
-  // 顯示用
-  const title = rec.title || "App";
-  // 安裝用（優先以自動偵測結果 ipaMeta 為準）
-  const bundle = rec.ipaMeta?.bundle_id || rec.bundle_id || `com.unknown.${rec.code}`;
-  const ver    = rec.ipaMeta?.version    || rec.version    || "1.0";
-  const ipaUrl = `https://cdn.rudownload.win/${encodeURI(rec.ipa_key)}`;
+    // 1) 驗證登入
+    const sid = readCookie(ctx.request, "sid");
+    const me = sid ? await verifySession(SESSION_SECRET, sid) : null;
+    if (!me) return j({ error: "unauthorized" }, 401);
 
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>items</key>
-    <array>
-      <dict>
-        <key>assets</key>
-        <array>
-          <dict>
-            <key>kind</key><string>software-package</string>
-            <key>url</key><string>${xml(ipaUrl)}</string>
-          </dict>
-        </array>
-        <key>metadata</key>
-        <dict>
-          <key>bundle-identifier</key><string>${xml(bundle)}</string>
-          <key>bundle-version</key><string>${xml(ver)}</string>
-          <key>kind</key><string>software</string>
-          <key>title</key><string>${xml(title)}</string>
-        </dict>
-      </dict>
-    </array>
-  </dict>
-</plist>`;
+    // 2) 解析輸入（顯示欄位可留空；檔案至少要有一個）
+    const b = await ctx.request.json<any>().catch(() => ({}));
+    const title = (b.title || "").toString().slice(0, 100);
+    const version = (b.version || "").toString().slice(0, 50);       // 顯示用
+    const bundle_id = (b.bundle_id || "").toString().slice(0, 200);  // 顯示用
+    const apk_key = b.apkKey ? String(b.apkKey) : "";
+    const ipa_key = b.ipaKey ? String(b.ipaKey) : "";
 
-  return new Response(plist, {
-    headers: {
-      "content-type": "application/xml; charset=utf-8",
-      "cache-control": "public, max-age=300"
+    // 解析來自前端的 ipaMeta（若有）
+    const ipaMeta = b.ipaMeta && typeof b.ipaMeta === "object" ? {
+      bundle_id: String(b.ipaMeta.bundle_id || ""),
+      version:   String(b.ipaMeta.version   || "")
+    } : null;
+
+    if (!apk_key && !ipa_key) return j({ error: "apkKey or ipaKey required" }, 400);
+
+    // 3) 產生唯一短碼（預設 4 碼，碰撞就再試）
+    let code = "";
+    for (let i = 0; i < 8; i++) {
+      const c = code4();
+      const exists = await LINKS.get(`link:${c}`);
+      if (!exists) { code = c; break; }
     }
-  });
+    if (!code) return j({ error: "retry code generation" }, 500);
+
+    const now = Date.now();
+    const rec = {
+      id: code,
+      code,
+      owner: me.uid,
+      // 顯示用欄位（不影響 /m 的 manifest）
+      title,
+      version,
+      bundle_id,
+      // 實際檔案 key
+      apk_key,
+      ipa_key,
+      // 自動偵測到的 IPA 真實資訊（/m 會優先使用）
+      ipaMeta,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // 4) 寫入主資料
+    await LINKS.put(`link:${code}`, JSON.stringify(rec));
+
+    // 5) 把短碼掛到使用者清單（每行一個 code）
+    const listKey = `user:${me.uid}:codes`;
+    const existing = (await LINKS.get(listKey)) || "";
+    const set = new Set(existing.split("\n").filter(Boolean));
+    set.add(code);
+    await LINKS.put(listKey, Array.from(set).join("\n"));
+
+    // 6) 回傳
+    return new Response(JSON.stringify({ code, url: `/d/${code}` }), {
+      status: 201,
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
+    });
+  } catch (e: any) {
+    return j({ error: "internal", detail: String(e?.message || e) }, 500);
+  }
 };
 
-function notFound() {
-  return new Response("Not Found", { status: 404, headers: { "cache-control": "no-store" } });
+function j(obj: any, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }
+  });
 }
-function xml(s: any){ return String(s).replace(/[<&>"]/g, m=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[m])); }
+function code4() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  let s = "";
+  for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
