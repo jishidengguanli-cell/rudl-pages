@@ -7,8 +7,8 @@ export interface Env extends AuthEnv {
 
 // 建立一個分發：產生短碼、寫入 LINKS、把短碼掛到使用者清單
 // 輸入: { title?, version?, bundle_id?, apkKey?, ipaKey?, ipaMeta? }
-// - 顯示用：title/version/bundle_id
-// - 安裝用：ipaMeta.bundle_id / ipaMeta.version（由前端自動解析）
+// - apkKey / ipaKey：你的 R2 key，例如 "android/App-123.apk" / "ios/App-456.ipa"
+// - ipaMeta：由前端解析 IPA 得到的 { bundle_id, version }，將供 /m/:code 產生 manifest 時優先使用
 export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   try {
     const { LINKS, SESSION_SECRET } = ctx.env;
@@ -18,7 +18,7 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     const me = sid ? await verifySession(SESSION_SECRET, sid) : null;
     if (!me) return j({ error: "unauthorized" }, 401);
 
-    // 2) 解析輸入
+    // 2) 解析輸入（顯示欄位可留空；檔案至少要有一個）
     const b = await ctx.request.json<any>().catch(() => ({}));
     const title = (b.title || "").toString().slice(0, 100);
     const version = (b.version || "").toString().slice(0, 50);       // 顯示用
@@ -26,7 +26,7 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     const apk_key = b.apkKey ? String(b.apkKey) : "";
     const ipa_key = b.ipaKey ? String(b.ipaKey) : "";
 
-    // 自動偵測（可選）
+    // 解析來自前端的 ipaMeta（若有）
     const ipaMeta = b.ipaMeta && typeof b.ipaMeta === "object" ? {
       bundle_id: String(b.ipaMeta.bundle_id || ""),
       version:   String(b.ipaMeta.version   || "")
@@ -34,7 +34,7 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
 
     if (!apk_key && !ipa_key) return j({ error: "apkKey or ipaKey required" }, 400);
 
-    // 3) 產生唯一短碼（預設 4 碼，避免碰撞重試）
+    // 3) 產生唯一短碼（預設 4 碼，碰撞就再試）
     let code = "";
     for (let i = 0; i < 8; i++) {
       const c = code4();
@@ -48,12 +48,15 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
       id: code,
       code,
       owner: me.uid,
-      title,      // 顯示用
-      version,    // 顯示用
-      bundle_id,  // 顯示用
+      // 顯示用欄位（不影響 /m 的 manifest）
+      title,
+      version,
+      bundle_id,
+      // 實際檔案 key
       apk_key,
       ipa_key,
-      ipaMeta,    // ★ 安裝用（/m 會優先取此處）
+      // 自動偵測到的 IPA 真實資訊（/m 會優先使用）
+      ipaMeta,
       createdAt: now,
       updatedAt: now
     };
