@@ -414,10 +414,12 @@ function parsePlistXML(xml) {
 function parseBinaryPlist(buf) {
   const dv = new DataView(buf);
   const u8 = new Uint8Array(buf);
+
+  // header
   const head = new TextDecoder().decode(u8.subarray(0, 8));
   if (!head.startsWith("bplist0")) throw new Error("not bplist");
 
-  // 讀 trailer
+  // trailer
   const trailer = new DataView(buf, u8.length - 32, 32);
   const offsetSize = trailer.getUint8(6);
   const objRefSize = trailer.getUint8(7);
@@ -425,9 +427,11 @@ function parseBinaryPlist(buf) {
   const topObject  = Number(readUIntBE(trailer, 16, 8));
   const offsetTbl  = Number(readUIntBE(trailer, 24, 8));
 
-  // 讀 offsets
+  // offsets table
   const offsets = [];
-  for (let i = 0; i < numObjects; i++) offsets.push(Number(readUIntBE(dv, offsetTbl + i*offsetSize, offsetSize)));
+  for (let i = 0; i < numObjects; i++) {
+    offsets.push(Number(readUIntBE(dv, offsetTbl + i * offsetSize, offsetSize)));
+  }
 
   function readObj(idx) {
     const off = offsets[idx];
@@ -435,75 +439,79 @@ function parseBinaryPlist(buf) {
     const type = (t & 0xF0) >> 4;
     const info = (t & 0x0F);
 
-    if (type === 0x0) { // null/bool
+    // helpers
+    function readLen(off0, info0) {
+      if (info0 !== 0x0F) return { l: info0, p: off0 + 1 };
+      const t2    = u8[off0 + 1];
+      const type2 = (t2 & 0xF0) >> 4;
+      const info2 = (t2 & 0x0F);
+      if (type2 !== 0x1) throw new Error("bplist len not int");
+      const nBytes = 1 << info2;
+      const val    = Number(readUIntBE(dv, off0 + 2, nBytes));
+      return { l: val, p: off0 + 2 + nBytes };
+    }
+
+    // types
+    if (type === 0x0) {          // null/bool
       if (info === 0x8) return false;
       if (info === 0x9) return true;
       return null;
     }
-    if (type === 0x1) { // integer
-      const len = 1 << info;
-      return Number(readUIntBE(dv, off+1, len));
+    if (type === 0x1) {          // integer
+      const nBytes = 1 << info;
+      return Number(readUIntBE(dv, off + 1, nBytes));
     }
-    if (type === 0x2) { // real
-      const len = 1 << info;
-      if (len === 4) return dv.getFloat32(off+1, false);
-      if (len === 8) return dv.getFloat64(off+1, false);
+    if (type === 0x2) {          // real
+      const nBytes = 1 << info;
+      if (nBytes === 4) return dv.getFloat32(off + 1, false);
+      if (nBytes === 8) return dv.getFloat64(off + 1, false);
       return null;
     }
-    if (type === 0x4) { // data
-      const {len, pos} = readLen(off, info);
-      return u8.slice(pos, pos+len);
+    if (type === 0x4) {          // data
+      const lp = readLen(off, info);
+      return u8.slice(lp.p, lp.p + lp.l);
     }
-    if (type === 0x5) { // ascii string
-      const {len, pos} = readLen(off, info);
-      return new TextDecoder().decode(u8.subarray(pos, pos+len));
+    if (type === 0x5) {          // ascii string
+      const lp = readLen(off, info);
+      return new TextDecoder().decode(u8.subarray(lp.p, lp.p + lp.l));
     }
-    if (type === 0x6) { // utf-16-be string
-      const {len, pos} = readLen(off, info);
-      let s=""; for (let i=0;i<len;i++){ s += String.fromCharCode(dv.getUint16(pos+i*2, false)); }
+    if (type === 0x6) {          // utf-16-be string
+      const lp = readLen(off, info);
+      let s = "";
+      for (let i = 0; i < lp.l; i++) s += String.fromCharCode(dv.getUint16(lp.p + i * 2, false));
       return s;
     }
-    if (type === 0xA) { // array
-      const {len, pos} = readLen(off, info);
+    if (type === 0xA) {          // array
+      const lp = readLen(off, info);
       const arr = [];
-      for (let i=0;i<len;i++){
-        const objRef = Number(readUIntBE(dv, pos + i*objRefSize, objRefSize));
+      for (let i = 0; i < lp.l; i++) {
+        const objRef = Number(readUIntBE(dv, lp.p + i * objRefSize, objRefSize));
         arr.push(readObj(objRef));
       }
       return arr;
     }
-    if (type === 0xD) { // dict
-      const {len, pos} = readLen(off, info);
+    if (type === 0xD) {          // dict
+      const lp = readLen(off, info);
       const keys = []; const vals = [];
-      for (let i=0;i<len;i++){
-        const keyRef = Number(readUIntBE(dv, pos + i*objRefSize, objRefSize));
+      for (let i = 0; i < lp.l; i++) {
+        const keyRef = Number(readUIntBE(dv, lp.p + i * objRefSize, objRefSize));
         keys.push(readObj(keyRef));
       }
-      const vs = pos + len*objRefSize;
-      for (let i=0;i<len;i++){
-        const valRef = Number(readUIntBE(dv, vs + i*objRefSize, objRefSize));
+      const vs = lp.p + lp.l * objRefSize;
+      for (let i = 0; i < lp.l; i++) {
+        const valRef = Number(readUIntBE(dv, vs + i * objRefSize, objRefSize));
         vals.push(readObj(valRef));
       }
-      const o:any = {}; for (let i=0;i<len;i++) o[String(keys[i])] = vals[i];
+      const o = {};
+      for (let i = 0; i < lp.l; i++) o[String(keys[i])] = vals[i];
       return o;
     }
     return null;
   }
 
-  function readLen(off, info){
-    if (info !== 0x0F) return { len: info, pos: off+1 };
-    // 長度是下一個「整數物件」
-    const t = u8[off+1];
-    const type = (t & 0xF0) >> 4;
-    const info2 = (t & 0x0F);
-    if (type !== 0x1) throw new Error("bplist len not int");
-    const len = 1 << info2;
-    const val = Number(readUIntBE(dv, off+2, len));
-    return { len: val, pos: off+2+len };
-  }
-
-  function readUIntBE(dv, off, len){
-    let n = 0n; for (let i=0;i<len;i++){ n = (n<<8n) | BigInt(dv.getUint8(off+i)); }
+  function readUIntBE(dv0, off0, len0) {
+    let n = 0n;
+    for (let i = 0; i < len0; i++) n = (n << 8n) | BigInt(dv0.getUint8(off0 + i));
     return n;
   }
 
