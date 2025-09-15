@@ -42,12 +42,19 @@ $("btn").addEventListener("click", async () => {
   try {
     const r = await fetch("/api/auth/login", {
       method: "POST",
+      credentials: "include",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ email, password })
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
       err.textContent = data?.error === "invalid credentials" ? "帳號或密碼錯誤" : (data?.error || "登入失敗，請稍後再試");
+      return;
+    }
+    // 二次確認 Cookie 是否生效
+    const me = await fetch("/api/auth/me", { credentials: "include" }).then(x=>x.json());
+    if (!me.authenticated) {
+      err.textContent = "登入狀態確認失敗，請重新整理或再試一次。";
       return;
     }
     const p = new URLSearchParams(location.search);
