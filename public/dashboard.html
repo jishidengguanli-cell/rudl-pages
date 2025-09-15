@@ -287,6 +287,14 @@ document.addEventListener('click', async (ev) => {
   }
 });
 
+// 事件委派：編輯
+document.addEventListener('click', (ev) => {
+  const btn = ev.target && ev.target.closest ? ev.target.closest('.edit') : null;
+  if (!btn) return;
+  const code = btn.getAttribute('data-code');
+  openEditModal(code);
+});
+
 // ===== 新增分發（Modal + 上傳 + 解析 IPA） =====
 const modal = document.getElementById("modal");
 document.getElementById("btn-new").addEventListener("click", ()=>{ modal.style.display="flex"; resetModal(); });
