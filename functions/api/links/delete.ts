@@ -29,8 +29,11 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     const raw = await LINKS.get(key);
     if (!raw) return j({ error: "not_found" }, 404);
     const rec = JSON.parse(raw);
-    if (rec.owner !== me.uid) return j({ error: "forbidden" }, 403);
-
+    
+    const emails = (ctx.env.ADMIN_EMAILS||"").toLowerCase().split(/[,;\s]+/).filter(Boolean);
+    const isAdmin = emails.includes((me.email||"").toLowerCase());
+    if (rec.owner !== me.uid && !isAdmin) return j({ error: "forbidden" }, 403);
+    
     // 2) 從使用者清單移除
     const listKey = `user:${me.uid}:codes`;
     const existing = (await LINKS.get(listKey)) || "";
