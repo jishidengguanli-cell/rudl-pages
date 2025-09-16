@@ -93,12 +93,12 @@ const $ = (id)=>document.getElementById(id);
 const fmt = (ts)=> ts ? new Date(ts).toLocaleString() : "-";
 
 (async ()=>{
-  // 顯示登入者（以及是否為管理員）
+  // 顯示登入者
   const meR = await fetch('/api/auth/me', {credentials:'include'});
   const me = await meR.json();
   $('me').textContent = me?.email ? `目前登入：${me.email}` : '尚未登入';
 
-  // 讀取總覽
+  // 總覽
   const sR = await fetch('/api/admin/stats', {credentials:'include'});
   if (!sR.ok){
     const next = encodeURIComponent('/admin.html');
@@ -108,27 +108,26 @@ const fmt = (ts)=> ts ? new Date(ts).toLocaleString() : "-";
   const s = await sR.json();
   $('stats').innerHTML = `使用者：<b>${s.users}</b>　分發：<b>${s.links}</b>　更新時間：${fmt(s.ts)}`;
 
-  // 列使用者（分頁）
-  let cursor = undefined, loading = false;
-  async function loadUsers(){
-    if (loading) return; loading = true;
+  // === 使用者清單（這裡改成會渲染「操作」按鈕） ===
+  let uCursor, uLoading = false;
+  async function loadUsersPage(){
+    if (uLoading) return; uLoading = true;
     const url = new URL('/api/admin/users/list', location.origin);
-    if (cursor) url.searchParams.set('cursor', cursor);
+    if (uCursor) url.searchParams.set('cursor', uCursor);
     url.searchParams.set('limit','50');
     const r = await fetch(url, {credentials:'include'});
-    if (!r.ok){ $('users').innerHTML = '<tr><td colspan="4">讀取失敗或無權限</td></tr>'; return; }
+    if (!r.ok){ $('users').innerHTML = '<tr><td colspan="5">讀取失敗或無權限</td></tr>'; uLoading=false; return; }
     const data = await r.json();
-    for (const it of data.items){
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${it.email}</td><td>${it.uid||''}</td><td>${it.role||'user'}</td><td>${fmt(it.createdAt)}</td>`;
-      $('users').appendChild(tr);
+    for (const u of data.items){
+      $('users').appendChild(renderUserRow(u));
     }
-    cursor = data.cursor || undefined;
+    bindUserRowEvents();
+    uCursor = data.cursor || undefined;
     $('more').style.display = data.list_complete ? 'none' : 'inline-block';
-    loading = false;
+    uLoading = false;
   }
-  $('more').addEventListener('click', loadUsers);
-  loadUsers();
+  $('more').addEventListener('click', loadUsersPage);
+  loadUsersPage();
 })();
 
 
@@ -264,16 +263,6 @@ function renderUserRow(u){
   return tr;
 }
 
-async function loadUsers(reset=false){
-  // 你原本的 fetch users 程式…
-  // 取得 data.items 後：
-  const tbody = document.getElementById('users'); // 你的 <tbody id="users">
-  if (reset) tbody.innerHTML = '';
-  for (const u of data.items){
-    tbody.appendChild(renderUserRow(u));
-  }
-  bindUserRowEvents();
-}
 
 function bindUserRowEvents(){
   // 升/降權
