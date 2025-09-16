@@ -284,11 +284,11 @@ const LOCALES: Record<string, Record<string,string>> = {
 
 function renderLangSwitcher(code: string, cur: string) {
   const opts = [
-    { v:"zh-TW", label:"繁中" },
     { v:"en",    label:"English" },
-    { v:"zh-CN", label:"简体" },
     { v:"ru",    label:"Русский" },
     { v:"vi",    label:"Tiếng Việt" },
+    { v:"zh-TW", label:"繁中" },
+    { v:"zh-CN", label:"简体" }
   ];
   return opts.map(o => {
     const href = `/d/${encodeURIComponent(code)}?lang=${encodeURIComponent(o.v)}`;
