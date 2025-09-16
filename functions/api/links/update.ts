@@ -21,8 +21,11 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     const me  = sid ? await verifySession(ctx.env.SESSION_SECRET, sid) : null;
     if (!me) return j({ error: "unauthorized" }, 401);
 
+    const ALLOWED_LANGS = new Set(["zh-TW","en","zh-CN","ru","vi"]);
+
     const body = await ctx.request.json<any>().catch(() => ({}));
-    const code       = String(body.code || "").trim();
+  const code = String(body.code || "").trim();
+  const lang = body.lang ? String(body.lang) : undefined;
     const title      = body.title      != null ? String(body.title).slice(0, 100) : undefined;
     const version    = body.version    != null ? String(body.version).slice(0, 50) : undefined;
     const bundle_id  = body.bundle_id  != null ? String(body.bundle_id).slice(0, 200) : undefined;
@@ -35,6 +38,11 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
 
     const rec = JSON.parse(raw);
     if (rec.owner !== me.uid) return j({ error: "forbidden" }, 403);
+    
+    if (lang !== undefined) {
+      if (!ALLOWED_LANGS.has(lang)) return j({ error: "unsupported_lang" }, 400);
+      rec.lang = lang;           // 預覽語系
+    }
 
     if (title      !== undefined) rec.title      = title;
     if (version    !== undefined) rec.version    = version;     // 只影響顯示，不影響 iOS 安裝
