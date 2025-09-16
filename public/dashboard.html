@@ -31,91 +31,53 @@
   .bar>i{display:block;height:100%;width:0;background:#3b82f6}
   .small{font-size:12px;color:#9ca3af}
   .copy{margin-left:8px;padding:4px 8px;background:#374151;border:1px solid #4b5563;border-radius:8px;color:#e5e7eb;cursor:pointer;font-size:12px}
-  /* 外層卡片更寬、更置中 */
-  #list-panel{
-    max-width: 1280px;       /* 原來較窄 → 放大 */
-    margin: 0 auto;          /* 置中 */
-  }
+  /* 卡片寬度：1366 筆電可不捲動 */
+  #list-panel{ max-width:1200px; margin:0 auto; }
   
-  /* 表格做成「卡片列」：行距、圓角、陰影 */
+  /* 用分離模式做卡片，並把舊的邊框拿掉，改用內陰影畫分隔線 */
   #tbl{
-    width: 100%;
-    table-layout: fixed;           /* 讓欄寬可控 */
-    border-collapse: separate;     /* 分離模式才能做卡片行距 */
-    border-spacing: 0 12px;        /* 列與列之間的縫隙 */
+    width:100%;
+    table-layout:fixed;
+    border-collapse:separate;
+    border-spacing:0 12px;
   }
-  
-  /* 標題列（置頂、稍微放大） */
-  #tbl thead th{
-    position: sticky; top: 0;
-    background: #0f172a;           /* 你的深色主題 */
-    z-index: 1;
-    font-weight: 600;
-    font-size: 14.5px;
-    padding: 12px 14px;
+  #tbl th,#tbl td{ border:none; }                    /* 關掉舊的底線 */
+  #tbl thead th{                                     /* 表頭底線 */
+    position:sticky; top:0; z-index:1;
+    background:#0f172a;
+    font-weight:600; font-size:14.5px; padding:12px 14px;
+    box-shadow: inset 0 -1px 0 #1f2937;
   }
-  
-  /* 每列像卡片：圓角+內距 */
   #tbl tbody td{
-    background: #0b1220;           /* 比背景再亮一點 */
-    padding: 14px 16px;
-    vertical-align: middle;
-    font-size: 14.5px;
-    line-height: 1.6;
+    background:#0b1220; padding:14px 16px;
+    vertical-align:middle; font-size:14.5px; line-height:1.6;
+    box-shadow: inset 0 -1px 0 #1f2937;              /* 每列底線 */
+  }
+  #tbl tbody td+td{                                  /* 垂直分隔線 */
+    box-shadow: inset 0 -1px 0 #1f2937, inset 1px 0 0 #1f2937;
   }
   #tbl tbody tr:hover td{ background:#0f1830; }
-  #tbl tbody td:first-child{ border-radius: 12px 0 0 12px; }
-  #tbl tbody td:last-child{  border-radius: 0 12px 12px 0; }
+  #tbl tbody td:first-child{ border-radius:12px 0 0 12px; }
+  #tbl tbody td:last-child{  border-radius:0 12px 12px 0; }
   
-  /* 欄寬（依你目前 8 欄；若欄位數不同，下面的 nth-child 數字調整一下） */
-  #tbl th:nth-child(1), #tbl td:nth-child(1){ width: 96px;  }   /* 短碼 */
-  #tbl th:nth-child(2), #tbl td:nth-child(2){ width: 200px; }   /* 標題 */
-  #tbl th:nth-child(3), #tbl td:nth-child(3){ width: 90px;  }   /* 版本 */
-  #tbl th:nth-child(4), #tbl td:nth-child(4){ width: 110px; }   /* 檔案 */
-  #tbl th:nth-child(5), #tbl td:nth-child(5){ width: 180px; }   /* 建立時間 */
-  #tbl th:nth-child(6), #tbl td:nth-child(6){ width: 300px; }   /* 下載數（較寬，多行） */
-  #tbl th:nth-child(7), #tbl td:nth-child(7){ width: 160px; }   /* 操作 */
-  #tbl th:nth-child(8), #tbl td:nth-child(8){ width: 320px; }   /* 下載頁（可截斷） */
+  /* 欄寬：較精簡 */
+  #tbl th:nth-child(1), #tbl td:nth-child(1){ width:80px; }   /* 短碼 */
+  #tbl th:nth-child(2), #tbl td:nth-child(2){ width:190px;}   /* 標題 */
+  #tbl th:nth-child(3), #tbl td:nth-child(3){ width:80px; }   /* 版本 */
+  #tbl th:nth-child(4), #tbl td:nth-child(4){ width:110px;}   /* 檔案 */
+  #tbl th:nth-child(5), #tbl td:nth-child(5){ width:190px;}   /* 建立時間 */
+  #tbl th:nth-child(6), #tbl td:nth-child(6){ width:290px;}   /* 下載數 */
+  #tbl th:nth-child(7), #tbl td:nth-child(7){ width:160px;}   /* 操作 */
+  #tbl th:nth-child(8), #tbl td:nth-child(8){ width:240px;}   /* 下載頁 */
   
-  /* 讓「標題、下載頁」不換行且可截斷，避免擠壓 */
-  #tbl td:nth-child(2),
-  #tbl td:nth-child(8){
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  /* 下載頁短鏈 + 省略 */
+  #tbl td:nth-child(2), #tbl td:nth-child(8){ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .small .link{ display:inline-block; max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   
-  /* 小徽章/按鈕間距 */
-  .tag{ margin-right: 6px; margin-top: 4px; display: inline-flex; }
-  .copy, .edit, .danger{ margin-right: 8px; }
-  .small2{ font-size: 12.5px; color:#9ca3af; line-height: 1.7; }
-  
-  /* 讓整體更鬆一點 */
-  .panel h3{ margin-bottom: 14px; }
-  
-  /* 行動版（選配）：小於 960px 改成卡片堆疊，可刪掉 */
-  @media (max-width: 960px){
-    #tbl thead{ display:none; }
-    #tbl, #tbl tbody, #tbl tr, #tbl td{
-      display:block; width: 100%;
-    }
-    #tbl tbody td{
-      border-radius: 8px !important;
-      padding: 10px 12px;
-    }
-    #tbl tbody tr{ margin-bottom: 12px; }
-  }
-  @media (max-width: 960px){
-    #tbl thead{ display:none; }
-    #tbl, #tbl tbody, #tbl tr, #tbl td{
-      display:block; width:100%;
-    }
-    #tbl tbody td{
-      border-radius: 8px !important;
-      padding: 10px 12px;
-    }
-    #tbl tbody tr{ margin-bottom: 12px; }
-  }
+  /* 小元件間距（保留你原本的） */
+  .tag{ margin-right:6px; margin-top:4px; display:inline-flex; }
+  .copy,.edit,.danger{ margin-right:8px; }
+  .small2{ font-size:12.5px; color:#9ca3af; line-height:1.7; }
 </style>
 
 <header>
@@ -138,7 +100,8 @@
         <div id="me" class="muted">讀取中…</div>
       </div>
       <div class="right-ctrls">
-        <button class="btn" id="btn-new">➕ 新增分發</button>
+        <a class="btn" id="btn-topup" href="/recharge.html">充值</a>
+        <button class="btn" id="btn-new">＋ 新增分發</button>
       </div>
     </div>
 
@@ -321,13 +284,13 @@ async function loadList() {
         </td>
     
         <td>
-          <button class="copy edit" data-code="${it.code}">編輯</button>
-          <button class="copy danger del" data-code="${it.code}">刪除</button>
+          <button class="btn edit" data-code="${it.code}">編輯</button>
+          <button class="btn danger del" data-code="${it.code}">刪除</button>
         </td>
     
         <td>
           <div class="small">
-            <a href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
+            <a class="link" href="/d/${it.code}" target="_blank">/d/${it.code}</a>
             <button class="copy" data-url="${absLink(it.code)}">複製</button>
           </div>
         </td>`;
@@ -389,20 +352,18 @@ $('btn-edit-save').addEventListener('click', async ()=>{
 });
 
   
-// 一鍵複製（事件委派）
+// 一鍵複製（只處理有 data-url 的按鈕）
 document.addEventListener('click', async (ev) => {
-  const btn = ev.target && ev.target.closest ? ev.target.closest('.copy') : null;
+  const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-url]') : null;
   if (!btn) return;
-  const url = btn.getAttribute('data-url');
+  const url = btn.getAttribute('data-url') || '';
   try {
     await navigator.clipboard.writeText(url);
     const old = btn.textContent;
     btn.textContent = '已複製';
     btn.disabled = true;
     setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 1200);
-  } catch {
-    alert('無法自動複製，請手動複製：\n' + url);
-  }
+  } catch(e){}
 });
 
 // 事件委派：編輯
