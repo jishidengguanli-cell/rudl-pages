@@ -1,5 +1,5 @@
 // functions/api/admin/stats.ts
-import { readCookie, verifySession, Env as AuthEnv } from "../../_lib/auth";
+import { readCookie, verifySession, Env as AuthEnv } from "../_lib/auth";
 
 export interface Env extends AuthEnv {
   USERS: KVNamespace;
