@@ -131,7 +131,7 @@
     <table id="tbl" style="display:none">
       <thead>
         <tr>
-          <th>短碼</th><th>標題</th><th>版本</th><th>檔案</th><th>建立時間</th><th>下載數</th><th>操作</th><th>下載頁</th>
+          <th>短碼</th><th>標題</th><th>版本</th><th>語系</th><th>檔案</th><th>建立時間</th><th>下載數</th><th>操作</th><th>下載頁</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -180,6 +180,14 @@
 
 <!-- 編輯分發 Modal -->
 <div class="modal" id="modal-edit">
+  <label>預設語系（下載頁）</label>
+  <select id="e-lang">
+    <option value="zh-TW">繁中</option>
+    <option value="en">English</option>
+    <option value="zh-CN">简体</option>
+    <option value="ru">Русский</option>
+    <option value="vi">Tiếng Việt</option>
+  </select>
   <div class="panel">
     <h3 style="margin:0 0 8px">編輯分發（顯示用欄位）</h3>
     <p class="small">這些欄位僅影響下載頁顯示；iOS 安裝資訊仍以 IPA 內的 Info.plist 為準。</p>
@@ -284,12 +292,15 @@ async function loadList() {
       const today = S.today || 0, total = S.total || 0;
       const tApk = S.apk_today || 0, tIpa = S.ipa_today || 0;
       const aApk = S.apk_total || 0, aIpa = S.ipa_total || 0;
-    
+
+      
+      
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><code>${it.code}</code></td>
         <td>${esc(it.title||"")}</td>
         <td>${esc(it.version||"")}</td>
+        <td>${langLabel(it.lang)}</td> 
         <td>
           ${hasApk?'<span class="tag">APK</span>':''}
           ${hasIpa?'<span class="tag">IPA</span>':''}
@@ -328,7 +339,10 @@ async function loadList() {
 function esc(s){return String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]))}
 function fmt(ts){if(!ts)return ""; const d=new Date(ts); return `${d.getFullYear()}-${(d.getMonth()+1+"").padStart(2,"0")}-${(d.getDate()+"").padStart(2,"0")} ${d.toTimeString().slice(0,8)}`;}
 function absLink(code){ return `${location.origin}/d/${code}`; }
-
+function langLabel(v){
+        const map = {"en":"English","ru":"Русский","vi":"Tiếng Việt","zh-TW":"繁中","zh-CN":"简体"};
+        return map[v] || v || "-";
+      }
 function openEditModal(code){
   const it = itemsByCode[code];
   if (!it) return alert('找不到資料');
@@ -337,6 +351,7 @@ function openEditModal(code){
   $('e-title').value   = it.title || '';
   $('e-version').value = it.version || '';
   $('e-bundle').value  = it.bundle_id || '';
+  $('e-lang').value = it.lang || 'en';   // 預設en
   $('e-err').textContent = '';
   $('modal-edit').style.display = 'flex';
 }
@@ -353,7 +368,10 @@ $('btn-edit-save').addEventListener('click', async ()=>{
   const title     = $('e-title').value.trim();
   const version   = $('e-version').value.trim();
   const bundle_id = $('e-bundle').value.trim();
-
+  const lang      = $('e-lang').value;      // 讀語系
+  
+  
+  
   $('e-err').textContent = '儲存中…';
 
   try {
@@ -361,7 +379,7 @@ $('btn-edit-save').addEventListener('click', async ()=>{
       method: 'POST',
       credentials: 'include',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code, title, version, bundle_id })
+      body: JSON.stringify({ code, title, version, bundle_id, lang }) // 一起送
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data?.error || '更新失敗');
