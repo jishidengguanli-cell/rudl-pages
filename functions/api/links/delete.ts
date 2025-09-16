@@ -1,7 +1,7 @@
 // functions/api/links/delete.ts
 // 刪除分發：刪 KV 主紀錄 + 統計鍵 + R2 物件 (APK/IPA)
 
-import { verifySession, Env as AuthEnv } from "functions/api/_lib/auth.ts"; // ← 若 _lib 在 api/_lib，改為 "../_lib/auth"
+import { verifySession, Env as AuthEnv } from "../_lib/auth.ts"; // ← 若 _lib 在 api/_lib，改為 "../_lib/auth"
 
 export interface Env extends AuthEnv {
   LINKS: KVNamespace;
