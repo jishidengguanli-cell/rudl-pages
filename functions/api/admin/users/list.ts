@@ -37,10 +37,11 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const url = new URL(ctx.request.url);
   const cursor = url.searchParams.get("cursor") || undefined;
   const limit = Math.min(100, Number(url.searchParams.get("limit") || "50") || 50);
+  const q = (url.searchParams.get("q") || "").toLowerCase();
 
   const res = await ctx.env.USERS.list({ prefix: "user:", cursor, limit });
 
-  const items = await Promise.all(
+  const items = (await Promise.all(
     res.keys.map(async (k) => {
       const uid = k.name.slice(5); // user:<uid>
       let email = "";
@@ -56,12 +57,12 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
           if (u.role === "admin" || u.is_admin) role = "admin";
         } catch {}
       }
-
-      // 兼容極舊資料（若 key 曾是 user:<email>）
       if (!email && uid.includes("@")) email = uid;
 
       return { email, uid, role, createdAt };
     })
+  )).filter(u =>
+    !q || (u.email && u.email.toLowerCase().includes(q)) || (u.uid && u.uid.toLowerCase().includes(q))
   );
 
   return J({
