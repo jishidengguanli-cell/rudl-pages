@@ -92,7 +92,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     <section class="card">
       <div class="meta">
         <div class="muted">版本</div><div>${h(verDisp || "-")}</div>
-        <div class="muted">Bundle ID</div><div>${h(bidDisp || "-")}</div>
+        //<div class="muted">Bundle ID</div><div>${h(bidDisp || "-")}</div>
         <div class="muted">平台</div>
         <div>
           ${hasApk ? '<span>Android APK</span>' : '<span class="muted">Android（無）</span>'}
