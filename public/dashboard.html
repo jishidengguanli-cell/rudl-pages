@@ -483,7 +483,7 @@ $('btn-del-confirm').addEventListener('click', async ()=>{
   if (!code) return;
   $('d-err').textContent = '刪除中…';
   try {
-    const r = await fetch('../function/api/links/delete', {
+    const r = await fetch('../functions/api/links/delete', {
       method: 'POST',
       credentials: 'include',
       headers: { 'content-type': 'application/json' },
