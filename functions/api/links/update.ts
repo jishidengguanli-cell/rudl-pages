@@ -21,7 +21,7 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     const me  = sid ? await verifySession(ctx.env.SESSION_SECRET, sid) : null;
     if (!me) return j({ error: "unauthorized" }, 401);
 
-    const ALLOWED_LANGS = new Set(["zh-TW","en","zh-CN","ru","vi"]);
+    const ALLOWED_LANGS = new Set(["en","zh-TW","zh-CN","ru","vi"]);
 
     const body = await ctx.request.json<any>().catch(() => ({}));
   const code = String(body.code || "").trim();
