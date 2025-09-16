@@ -1,5 +1,5 @@
 // functions/d/[code].ts
-// 下載頁（顯示資訊 + 下載按鈕 + iOS 引導面板）
+// 下載頁（顯示會員填入的版本/Bundle ID + 下載按鈕 + iOS 引導面板）
 
 export interface Env {
   LINKS: KVNamespace;
@@ -15,11 +15,17 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   type Rec = {
     code: string;
     title?: string;
-    version?: string;   // 顯示用
-    bundle_id?: string; // 顯示用
+    // —— 這兩個由會員在分發時填入，僅用於顯示 —— //
+    version?: string;
+    bundle_id?: string;
+
+    // 檔案鍵（是否有上傳）
     apk_key?: string;
     ipa_key?: string;
+
+    // 解析自 IPA 的資訊（僅供 iOS 引導顯示開發者名稱，不影響顯示的版本/Bundle）
     ipaMeta?: { bundle_id?: string; version?: string; dev_name?: string };
+
     createdAt?: number;
   };
 
@@ -30,9 +36,11 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const hasIpa = !!rec.ipa_key;
 
   const title   = rec.title || "App";
-  const verDisp = rec.version || rec.version || "";
-  const bidDisp = rec.bundle_id || rec.bundle_id || "";
-  // 開發者名稱（若有解析可帶過來；沒有就用通用字）
+  // ✅ 只顯示會員填入的值；若沒填，就顯示「-」
+  const verDisp = rec.version ?? "";
+  const bidDisp = rec.bundle_id ?? "";
+
+  // iOS 引導面板使用的「開發者名稱」（僅做教學展示，不影響顯示的版本/Bundle）
   const devName = rec.ipaMeta?.dev_name || "Enterprise Developer";
 
   // 下載按鈕：走 /dl 以便計數；/dl 會再 302 到 CDN / itms-services
@@ -127,7 +135,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 
     <div class="row">
       <button class="btn ghost" id="btnCopyDev" type="button">複製開發者名稱</button>
-      <!-- 若你的 App 有自訂 URL Scheme，可動態塞到 data-scheme；沒有就隱藏按鈕 -->
+      <!-- 若你的 App 有自訂 URL Scheme，可在頁面上以 window.__APP_SCHEME__ 指定；沒有就自動隱藏 -->
       <button class="btn" id="btnOpenApp" type="button" data-scheme="">嘗試開啟 App</button>
       <button class="btn red" id="btnCloseGuide" type="button">關閉</button>
     </div>
@@ -138,15 +146,12 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 
   <script>
   (function(){
-    // 如果沒有 iOS 安裝按鈕，直接略過引導
     var installBtn = document.getElementById('btn-ios');
     if(!installBtn) return;
 
-    // 開發者名稱：優先用 data-dev → 再用 window.__DEV_NAME__ → 預設
     var devName = installBtn.getAttribute('data-dev') || (window.__DEV_NAME__ || 'Enterprise Developer');
-    document.getElementById('devName').textContent = devName;
+    var devEl = document.getElementById('devName'); if (devEl) devEl.textContent = devName;
 
-    //（可選）App 的 URL Scheme，如果你有要提供「嘗試開啟 App」按鈕
     var schemeFromGlobal = (window.__APP_SCHEME__ || '');
     var openBtn = document.getElementById('btnOpenApp');
     if (schemeFromGlobal) openBtn.setAttribute('data-scheme', schemeFromGlobal);
@@ -182,7 +187,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     document.getElementById('btnCloseGuide').addEventListener('click', hideGuide);
     mask.addEventListener('click', hideGuide);
 
-    // 關鍵：點 iOS 安裝 → 觸發 itms-services → 稍後彈出引導
+    // 點 iOS 安裝 → 觸發 itms-services → 稍後彈出引導
     installBtn.addEventListener('click', function(){
       if (!isiOS()) return;
       setTimeout(showGuide, 600);
@@ -196,24 +201,27 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     status: 200,
     headers: {
       "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store"
-    }
+      "cache-control": "no-store",
+    },
   });
 };
 
 function resp404(msg: string) {
-  return new Response(msg || "Not Found", { status: 404, headers: { "cache-control": "no-store" } });
+  return new Response(msg || "Not Found", {
+    status: 404,
+    headers: { "cache-control": "no-store" },
+  });
 }
 
 // HTML/屬性跳脫，避免 XSS / 破版
 function h(s: any) {
-  return String(s ?? "").replace(/[&<>"']/g, (m) => (
+  return String(s ?? "").replace(/[&<>"']/g, (m) =>
     m === "&" ? "&amp;" :
     m === "<" ? "&lt;"  :
     m === ">" ? "&gt;"  :
     m === '"' ? "&quot;":
                 "&#39;"
-  ));
+  );
 }
 function attr(s: any) {
   return h(s).replace(/"/g, "&quot;");
