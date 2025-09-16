@@ -1,55 +1,97 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>Upload test</title>
-<h1>R2 Upload</h1>
-<input type="file" id="f" />
-<select id="folder">
-  <option value="android">android</option>
-  <option value="ios">ios</option>
-</select>
-<button id="btn">上傳</button>
-<pre id="out"></pre>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>管理後台 - RU Download</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+  body{margin:0;background:#0f172a;color:#e5e7eb;font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{background:#0b1222;border-bottom:1px solid #1f2937}
+  .wrap{max-width:1200px;margin:0 auto;padding:16px}
+  nav{display:flex;align-items:center;gap:12px}
+  nav .right{margin-left:auto;display:flex;gap:10px}
+  a{color:#93c5fd;text-decoration:none}
+  .btn{padding:8px 12px;border-radius:10px;border:0;background:#3b82f6;color:#fff;cursor:pointer}
+  .card{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:16px;margin-top:16px}
+  table{width:100%;border-collapse:separate;border-spacing:0 10px}
+  th{position:sticky;top:0;background:#0f172a;padding:10px 12px;text-align:left;box-shadow: inset 0 -1px 0 #1f2937}
+  td{background:#0b1220;padding:12px 12px;box-shadow: inset 0 -1px 0 #1f2937}
+  td:first-child{border-radius:12px 0 0 12px} td:last-child{border-radius:0 12px 12px 0}
+  .muted{color:#9ca3af}
+</style>
+
+<header>
+  <div class="wrap">
+    <nav>
+      <strong>RU Download</strong>
+      <div class="right">
+        <a href="/dashboard.html">分發列表</a>
+        <a href="#" id="logout">登出</a>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <h2 style="margin:10px 0">管理後台</h2>
+
+  <div class="card">
+    <h3 style="margin:0 0 8px">總覽</h3>
+    <div class="muted" id="me">讀取中…</div>
+    <div id="stats" style="margin-top:8px">載入中…</div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 8px">使用者</h3>
+    <table>
+      <thead><tr><th>Email</th><th>UID</th><th>角色</th><th>建立時間</th></tr></thead>
+      <tbody id="users"></tbody>
+    </table>
+    <div style="margin-top:8px"><button class="btn" id="more">載入更多</button></div>
+  </div>
+</main>
+
 <script>
-const $ = id => document.getElementById(id);
-$("btn").onclick = async () => {
-  const file = $("f").files[0];
-  if (!file) return alert("請選檔");
-  $("out").textContent = "初始化中...";
-  try {
-    // 1) 拿預簽名 URL
-    const r = await fetch("/api/upload/init", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        filename: file.name,
-        folder: $("folder").value,
-        contentType: file.type || (file.name.endsWith(".apk") ? "application/vnd.android.package-archive" : "application/octet-stream")
-      })
-    });
-    const data = await r.json().catch(()=>({error:"init not json"}));
-    if (!r.ok || !data.uploadUrl) {
-      $("out").textContent = "❌ init 失敗\n" + JSON.stringify(data, null, 2);
-      return;
-    }
+const $ = (id)=>document.getElementById(id);
+const fmt = (ts)=> ts ? new Date(ts).toLocaleString() : "-";
 
-    // 2) PUT 上傳到 R2
-    $("out").textContent = "上傳中...";
-    const up = await fetch(data.uploadUrl, {
-      method: "PUT",
-      headers: { "content-type": data.contentType },
-      body: file
-    });
+(async ()=>{
+  // 顯示登入者（以及是否為管理員）
+  const meR = await fetch('/api/auth/me', {credentials:'include'});
+  const me = await meR.json();
+  $('me').textContent = me?.email ? `目前登入：${me.email}` : '尚未登入';
 
-    if (!up.ok) {
-      const t = await up.text();
-      $("out").textContent = `❌ 上傳失敗 ${up.status}\n${t}`;
-      return;
+  // 讀取總覽
+  const sR = await fetch('/api/admin/stats', {credentials:'include'});
+  if (!sR.ok){ $('stats').textContent = '沒有權限或尚未登入。'; return; }
+  const s = await sR.json();
+  $('stats').innerHTML = `使用者：<b>${s.users}</b>　分發：<b>${s.links}</b>　更新時間：${fmt(s.ts)}`;
+
+  // 列使用者（分頁）
+  let cursor = undefined, loading = false;
+  async function loadUsers(){
+    if (loading) return; loading = true;
+    const url = new URL('/api/admin/users/list', location.origin);
+    if (cursor) url.searchParams.set('cursor', cursor);
+    url.searchParams.set('limit','50');
+    const r = await fetch(url, {credentials:'include'});
+    if (!r.ok){ $('users').innerHTML = '<tr><td colspan="4">讀取失敗或無權限</td></tr>'; return; }
+    const data = await r.json();
+    for (const it of data.items){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${it.email}</td><td>${it.uid||''}</td><td>${it.role||'user'}</td><td>${fmt(it.createdAt)}</td>`;
+      $('users').appendChild(tr);
     }
-    $("out").textContent = `✅ 上傳完成！
-Key: ${data.key}
-CDN: https://cdn.rudownload.win/${data.key}`;
-  } catch (e) {
-    $("out").textContent = "❌ 例外: " + (e?.message || e);
+    cursor = data.cursor || undefined;
+    $('more').style.display = data.list_complete ? 'none' : 'inline-block';
+    loading = false;
   }
-};
+  $('more').addEventListener('click', loadUsers);
+  loadUsers();
+})();
+
+$('logout').addEventListener('click', async (e)=>{
+  e.preventDefault();
+  try{ await fetch('/api/auth/logout', {method:'POST', credentials:'include'}); }catch{}
+  location.href = '/login.html';
+});
 </script>
