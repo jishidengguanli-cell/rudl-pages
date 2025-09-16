@@ -93,6 +93,64 @@ const fmt = (ts)=> ts ? new Date(ts).toLocaleString() : "-";
   loadUsers();
 })();
 
+
+// ===== 所有分發（分頁載入 + 刪除） =====
+let cursorL = undefined, loadingL = false;
+async function loadAllLinks() {
+  if (loadingL) return; loadingL = true;
+  const url = new URL('/api/admin/links/list-all', location.origin);
+  if (cursorL) url.searchParams.set('cursor', cursorL);
+  url.searchParams.set('limit', '50');
+  const r = await fetch(url, { credentials: 'include' });
+  if (!r.ok) { document.getElementById('links').innerHTML = '<tr><td colspan="8">讀取失敗或無權限</td></tr>'; return; }
+  const data = await r.json();
+  for (const it of data.items) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><a href="/d/${it.code}" target="_blank">${it.code}</a></td>
+      <td>${it.owner || ''}</td>
+      <td>${it.platform || ''}</td>
+      <td>${it.filename || ''}</td>
+      <td>${it.today || 0}</td>
+      <td>${it.total || 0}</td>
+      <td>${it.createdAt ? new Date(it.createdAt).toLocaleString() : '-'}</td>
+      <td><button class="btn red" data-code="${it.code}">刪除</button></td>
+    `;
+    document.getElementById('links').appendChild(tr);
+  }
+  cursorL = data.cursor || undefined;
+  document.getElementById('moreLinks').style.display = data.list_complete ? 'none' : 'inline-block';
+
+  // 綁定刪除按鈕
+  document.querySelectorAll('button[data-code]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('確定要刪除這個分發？')) return;
+      const code = btn.getAttribute('data-code');
+      btn.disabled = true; btn.textContent = '刪除中…';
+      try {
+        const rr = await fetch('/api/links/delete', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+        if (rr.ok) btn.closest('tr').remove();
+        else alert('刪除失敗');
+      } catch (e) {
+        alert(String(e));
+      } finally {
+        // no-op
+      }
+    };
+  });
+
+  loadingL = false;
+}
+document.getElementById('moreLinks').addEventListener('click', loadAllLinks);
+loadAllLinks();
+
+
+  
 $('logout').addEventListener('click', async (e)=>{
   e.preventDefault();
   try{ await fetch('/api/auth/logout', {method:'POST', credentials:'include'}); }catch{}
