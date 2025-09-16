@@ -2,6 +2,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>控制台 - RU Download</title>
+<body class="dashboard">
 <style>
   body{margin:0;background:#0f172a;color:#e5e7eb;font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
   header{background:#0b1222;border-bottom:1px solid #1f2937}
@@ -31,53 +32,76 @@
   .bar>i{display:block;height:100%;width:0;background:#3b82f6}
   .small{font-size:12px;color:#9ca3af}
   .copy{margin-left:8px;padding:4px 8px;background:#374151;border:1px solid #4b5563;border-radius:8px;color:#e5e7eb;cursor:pointer;font-size:12px}
-  /* 卡片寬度：1366 筆電可不捲動 */
-  #list-panel{ max-width:1200px; margin:0 auto; }
+  /* 只影響控制台頁 */
+  body.dashboard .wrap{ max-width:1280px; margin:0 auto; }
   
-  /* 用分離模式做卡片，並把舊的邊框拿掉，改用內陰影畫分隔線 */
+  /* 分發列表外框：跟表格同寬（左右不留空），上方內容自己加邊距 */
+  #list-panel{
+    max-width:1280px;
+    margin:20px auto;
+    padding:12px 0 16px;         /* 左右 0，框寬 = 表格寬 */
+    overflow:hidden;             /* 圓角不外溢 */
+  }
+  
+  /* 上方標題＋右側按鈕：自己補左右 padding，就不影響表格對齊 */
+  .panel-head{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:0 16px 8px;
+  }
+  #list-panel #me,
+  #list-panel #empty{ padding:0 16px; }
+  
+  /* 表格卡片化：用分離模式 + 陰影畫分隔線，邊線會「接」起來 */
   #tbl{
     width:100%;
     table-layout:fixed;
     border-collapse:separate;
-    border-spacing:0 12px;
+    border-spacing:0 12px;       /* 列與列之間的縫隙 */
   }
-  #tbl th,#tbl td{ border:none; }                    /* 關掉舊的底線 */
-  #tbl thead th{                                     /* 表頭底線 */
+  #tbl th,#tbl td{ border:none; }
+  
+  /* 表頭 */
+  #tbl thead th{
     position:sticky; top:0; z-index:1;
     background:#0f172a;
     font-weight:600; font-size:14.5px; padding:12px 14px;
-    box-shadow: inset 0 -1px 0 #1f2937;
+    box-shadow: inset 0 -1px 0 #1f2937;     /* 底線 */
   }
+  
+  /* 每列像卡片：圓角 + 內距 + 內部分隔線 */
   #tbl tbody td{
-    background:#0b1220; padding:14px 16px;
-    vertical-align:middle; font-size:14.5px; line-height:1.6;
-    box-shadow: inset 0 -1px 0 #1f2937;              /* 每列底線 */
+    background:#0b1220;
+    padding:14px 16px;
+    vertical-align:middle;
+    font-size:14.5px; line-height:1.6;
+    box-shadow: inset 0 -1px 0 #1f2937;      /* 每列底線 */
   }
-  #tbl tbody td+td{                                  /* 垂直分隔線 */
+  #tbl tbody td+td{
+    /* 加上垂直分隔線，讓邊線視覺上「接」在一起 */
     box-shadow: inset 0 -1px 0 #1f2937, inset 1px 0 0 #1f2937;
   }
   #tbl tbody tr:hover td{ background:#0f1830; }
   #tbl tbody td:first-child{ border-radius:12px 0 0 12px; }
   #tbl tbody td:last-child{  border-radius:0 12px 12px 0; }
   
-  /* 欄寬：較精簡 */
-  #tbl th:nth-child(1), #tbl td:nth-child(1){ width:80px; }   /* 短碼 */
-  #tbl th:nth-child(2), #tbl td:nth-child(2){ width:190px;}   /* 標題 */
-  #tbl th:nth-child(3), #tbl td:nth-child(3){ width:80px; }   /* 版本 */
-  #tbl th:nth-child(4), #tbl td:nth-child(4){ width:110px;}   /* 檔案 */
-  #tbl th:nth-child(5), #tbl td:nth-child(5){ width:190px;}   /* 建立時間 */
-  #tbl th:nth-child(6), #tbl td:nth-child(6){ width:290px;}   /* 下載數 */
-  #tbl th:nth-child(7), #tbl td:nth-child(7){ width:160px;}   /* 操作 */
-  #tbl th:nth-child(8), #tbl td:nth-child(8){ width:240px;}   /* 下載頁 */
+  /* 欄寬（總寬控制在 ~1260，1280 裡面就不會橫向捲動） */
+  #tbl th:nth-child(1), #tbl td:nth-child(1){ width: 72px; }  /* 短碼 */
+  #tbl th:nth-child(2), #tbl td:nth-child(2){ width:168px; }  /* 標題 */
+  #tbl th:nth-child(3), #tbl td:nth-child(3){ width: 72px; }  /* 版本 */
+  #tbl th:nth-child(4), #tbl td:nth-child(4){ width: 96px; }  /* 檔案 */
+  #tbl th:nth-child(5), #tbl td:nth-child(5){ width:176px; }  /* 建立時間 */
+  #tbl th:nth-child(6), #tbl td:nth-child(6){ width:266px; }  /* 下載數 */
+  #tbl th:nth-child(7), #tbl td:nth-child(7){ width:140px; }  /* 操作 */
+  #tbl th:nth-child(8), #tbl td:nth-child(8){ width:270px; }  /* 下載頁 */
   
-  /* 下載頁短鏈 + 省略 */
-  #tbl td:nth-child(2), #tbl td:nth-child(8){ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .small .link{ display:inline-block; max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* 下載頁顯示完整網址，但避免超出邊框時還是能優雅截斷 */
+  .small .link{ display:inline-block; max-width: 228px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   
-  /* 小元件間距（保留你原本的） */
+  /* 小元件間距（沿用你現有風格） */
   .tag{ margin-right:6px; margin-top:4px; display:inline-flex; }
-  .copy,.edit,.danger{ margin-right:8px; }
+  .btn, .copy, .edit, .danger{ margin-right:8px; }
   .small2{ font-size:12.5px; color:#9ca3af; line-height:1.7; }
+
 </style>
 
 <header>
@@ -94,11 +118,9 @@
 
 <main class="wrap">
   <div class="card" id="list-panel">
-    <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
-      <div>
-        <h2 style="margin:0 0 6px">分發列表</h2>
-        <div id="me" class="muted">讀取中…</div>
-      </div>
+    <div class="panel-head">
+      <h2>分發列表</h2>
+      <div id="me" class="muted">讀取中…</div>
       <div class="right-ctrls">
         <a class="btn" id="btn-topup" href="/recharge.html">充值</a>
         <button class="btn" id="btn-new">＋ 新增分發</button>
@@ -290,8 +312,8 @@ async function loadList() {
     
         <td>
           <div class="small">
-            <a class="link" href="/d/${it.code}" target="_blank">/d/${it.code}</a>
-            <button class="copy" data-url="${absLink(it.code)}">複製</button>
+            <a class="link" href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
+            <button data-url="${absLink(it.code)}" class="copy">複製</button>
           </div>
         </td>`;
       tbody.appendChild(tr);
