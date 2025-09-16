@@ -30,8 +30,8 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const hasIpa = !!rec.ipa_key;
 
   const title   = rec.title || "App";
-  const verDisp = rec.version || rec.ipaMeta?.version || "";
-  const bidDisp = rec.bundle_id || rec.ipaMeta?.bundle_id || "";
+  const verDisp = rec.version || rec.version || "";
+  const bidDisp = rec.bundle_id || rec.bundle_id || "";
   // 開發者名稱（若有解析可帶過來；沒有就用通用字）
   const devName = rec.ipaMeta?.dev_name || "Enterprise Developer";
 
@@ -92,7 +92,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     <section class="card">
       <div class="meta">
         <div class="muted">版本</div><div>${h(verDisp || "-")}</div>
-        //<div class="muted">Bundle ID</div><div>${h(bidDisp || "-")}</div>
+        <div class="muted">Bundle ID</div><div>${h(bidDisp || "-")}</div>
         <div class="muted">平台</div>
         <div>
           ${hasApk ? '<span>Android APK</span>' : '<span class="muted">Android（無）</span>'}
