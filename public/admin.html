@@ -62,7 +62,11 @@ const fmt = (ts)=> ts ? new Date(ts).toLocaleString() : "-";
 
   // 讀取總覽
   const sR = await fetch('/api/admin/stats', {credentials:'include'});
-  if (!sR.ok){ $('stats').textContent = '沒有權限或尚未登入。'; return; }
+  if (!sR.ok){
+    const next = encodeURIComponent('/admin.html');
+    $('stats').innerHTML = '沒有權限或尚未登入。<a href="/login.html?next=' + next + '">去登入</a>';
+    return;
+  }
   const s = await sR.json();
   $('stats').innerHTML = `使用者：<b>${s.users}</b>　分發：<b>${s.links}</b>　更新時間：${fmt(s.ts)}`;
 
