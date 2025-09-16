@@ -43,11 +43,49 @@
   <div class="card">
     <h3 style="margin:0 0 8px">使用者</h3>
     <table>
-      <thead><tr><th>Email</th><th>UID</th><th>角色</th><th>建立時間</th></tr></thead>
+      <thead><tr><th>Email</th><th>UID</th><th>角色</th><th>建立時間</th><th>操作</th></tr></thead>
       <tbody id="users"></tbody>
     </table>
     <div style="margin-top:8px"><button class="btn" id="more">載入更多</button></div>
   </div>
+
+  <div class="card">
+  <h3 style="margin:0 0 8px">所有分發</h3>
+
+  <div style="display:flex;gap:8px;align-items:center;margin:6px 0 10px">
+    <input id="qLinks" placeholder="搜尋：code / owner / 檔名 / 平台" style="flex:1;min-width:240px">
+    <label>排序：
+      <select id="sortLinks">
+        <option value="createdAt">建立時間</option>
+        <option value="today">今日</option>
+        <option value="total">累計</option>
+      </select>
+    </label>
+    <label>方向：
+      <select id="orderLinks">
+        <option value="desc">降序</option>
+        <option value="asc">升序</option>
+      </select>
+    </label>
+    <button class="btn" id="refreshLinks">重新整理</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th><input type="checkbox" id="chkAll"></th>
+        <th>Code</th><th>Owner</th><th>平台</th><th>檔名</th>
+        <th>今日</th><th>累計</th><th>建立時間</th><th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="links"></tbody>
+  </table>
+  <div style="display:flex;justify-content:space-between;margin-top:8px">
+    <button class="btn red" id="bulkDelete" disabled>刪除所選</button>
+    <button class="btn" id="moreLinks">載入更多</button>
+  </div>
+</div>
+
 </main>
 
 <script>
@@ -94,61 +132,197 @@ const fmt = (ts)=> ts ? new Date(ts).toLocaleString() : "-";
 })();
 
 
-// ===== 所有分發（分頁載入 + 刪除） =====
-let cursorL = undefined, loadingL = false;
-async function loadAllLinks() {
+/* ====== 所有分發（搜尋/排序/分頁/批刪） ====== */
+let cursorL = undefined, loadingL = false, selectedCodes = new Set();
+
+function renderLinksRow(it){
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="checkbox" data-code="${it.code}"></td>
+    <td><a href="/d/${it.code}" target="_blank">${it.code}</a></td>
+    <td>${it.owner || ''}</td>
+    <td>${it.platform || ''}</td>
+    <td>${it.filename || ''}</td>
+    <td>${it.today || 0}</td>
+    <td>${it.total || 0}</td>
+    <td>${it.createdAt ? new Date(it.createdAt).toLocaleString() : '-'}</td>
+    <td><button class="btn red" data-del="${it.code}">刪除</button></td>
+  `;
+  return tr;
+}
+
+async function loadAllLinks(reset=false){
   if (loadingL) return; loadingL = true;
+  if (reset){ cursorL = undefined; document.getElementById('links').innerHTML=''; }
   const url = new URL('/api/admin/links/list-all', location.origin);
   if (cursorL) url.searchParams.set('cursor', cursorL);
   url.searchParams.set('limit', '50');
-  const r = await fetch(url, { credentials: 'include' });
-  if (!r.ok) { document.getElementById('links').innerHTML = '<tr><td colspan="8">讀取失敗或無權限</td></tr>'; return; }
+  url.searchParams.set('q', document.getElementById('qLinks').value.trim());
+  url.searchParams.set('sort', document.getElementById('sortLinks').value);
+  url.searchParams.set('order', document.getElementById('orderLinks').value);
+
+  const r = await fetch(url, { credentials:'include' });
+  if (!r.ok){ document.getElementById('links').innerHTML = '<tr><td colspan="9">讀取失敗或無權限</td></tr>'; loadingL=false; return; }
   const data = await r.json();
+
   for (const it of data.items) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><a href="/d/${it.code}" target="_blank">${it.code}</a></td>
-      <td>${it.owner || ''}</td>
-      <td>${it.platform || ''}</td>
-      <td>${it.filename || ''}</td>
-      <td>${it.today || 0}</td>
-      <td>${it.total || 0}</td>
-      <td>${it.createdAt ? new Date(it.createdAt).toLocaleString() : '-'}</td>
-      <td><button class="btn red" data-code="${it.code}">刪除</button></td>
-    `;
+    const tr = renderLinksRow(it);
     document.getElementById('links').appendChild(tr);
   }
   cursorL = data.cursor || undefined;
   document.getElementById('moreLinks').style.display = data.list_complete ? 'none' : 'inline-block';
-
-  // 綁定刪除按鈕
-  document.querySelectorAll('button[data-code]').forEach(btn => {
-    btn.onclick = async () => {
-      if (!confirm('確定要刪除這個分發？')) return;
-      const code = btn.getAttribute('data-code');
-      btn.disabled = true; btn.textContent = '刪除中…';
-      try {
-        const rr = await fetch('/api/links/delete', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ code })
-        });
-        if (rr.ok) btn.closest('tr').remove();
-        else alert('刪除失敗');
-      } catch (e) {
-        alert(String(e));
-      } finally {
-        // no-op
-      }
-    };
-  });
-
+  bindLinkRowEvents();
   loadingL = false;
+  updateBulkBtn();
 }
-document.getElementById('moreLinks').addEventListener('click', loadAllLinks);
-loadAllLinks();
 
+function bindLinkRowEvents(){
+  // 單筆刪除
+  document.querySelectorAll('button[data-del]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const code = btn.getAttribute('data-del');
+      if (!confirm(`刪除分發 ${code}？`)) return;
+      btn.disabled = true; btn.textContent='刪除中…';
+      await fetch('/api/admin/links/delete', {
+        method:'POST', credentials:'include',
+        headers:{'content-type':'application/json'},
+        body: JSON.stringify({ code })
+      });
+      btn.closest('tr').remove();
+      selectedCodes.delete(code);
+      updateBulkBtn();
+    }
+  });
+  // 勾選
+  document.querySelectorAll('input[type=checkbox][data-code]').forEach(chk=>{
+    chk.onchange = ()=>{
+      const code = chk.getAttribute('data-code');
+      if (chk.checked) selectedCodes.add(code); else selectedCodes.delete(code);
+      updateBulkBtn();
+    }
+  });
+}
+
+function updateBulkBtn(){
+  const bulk = document.getElementById('bulkDelete');
+  bulk.disabled = selectedCodes.size === 0;
+  document.getElementById('chkAll').checked =
+    selectedCodes.size > 0 &&
+    selectedCodes.size === document.querySelectorAll('input[type=checkbox][data-code]').length;
+}
+
+document.getElementById('qLinks').addEventListener('keydown', e=>{
+  if (e.key === 'Enter') loadAllLinks(true);
+});
+document.getElementById('sortLinks').onchange = ()=> loadAllLinks(true);
+document.getElementById('orderLinks').onchange = ()=> loadAllLinks(true);
+document.getElementById('refreshLinks').onclick = ()=> loadAllLinks(true);
+document.getElementById('moreLinks').onclick = ()=> loadAllLinks(false);
+
+document.getElementById('chkAll').onchange = (e)=>{
+  const all = document.querySelectorAll('input[type=checkbox][data-code]');
+  selectedCodes.clear();
+  all.forEach(chk=>{ chk.checked = e.target.checked; if (chk.checked) selectedCodes.add(chk.getAttribute('data-code')); });
+  updateBulkBtn();
+};
+document.getElementById('bulkDelete').onclick = async ()=>{
+  if (selectedCodes.size === 0) return;
+  if (!confirm(`確定刪除 ${selectedCodes.size} 個分發？`)) return;
+  const codes = Array.from(selectedCodes);
+  await fetch('/api/admin/links/delete', {
+    method:'POST', credentials:'include',
+    headers:{'content-type':'application/json'},
+    body: JSON.stringify({ codes })
+  });
+  // 從畫面移除
+  document.querySelectorAll('input[type=checkbox][data-code]').forEach(chk=>{
+    const code = chk.getAttribute('data-code');
+    if (selectedCodes.has(code)) chk.closest('tr')?.remove();
+  });
+  selectedCodes.clear();
+  updateBulkBtn();
+};
+
+loadAllLinks(true);
+
+/* ====== 使用者管理 操作鈕 ====== */
+function renderUserRow(u){
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>${u.email || '-'}</td>
+    <td>${u.uid}</td>
+    <td>${u.role}</td>
+    <td>${u.createdAt ? new Date(u.createdAt).toLocaleString() : '-'}</td>
+    <td style="white-space:nowrap;display:flex;gap:6px">
+      <button class="btn" data-role="${u.uid}|${u.role==='admin'?'user':'admin'}">
+        ${u.role==='admin'?'降為一般':'升為管理員'}
+      </button>
+      <button class="btn" data-reset="${u.uid}">重設密碼</button>
+      <button class="btn red" data-u-del="${u.uid}">刪除</button>
+    </td>
+  `;
+  return tr;
+}
+
+async function loadUsers(reset=false){
+  // 你原本的 fetch users 程式…
+  // 取得 data.items 後：
+  const tbody = document.getElementById('users'); // 你的 <tbody id="users">
+  if (reset) tbody.innerHTML = '';
+  for (const u of data.items){
+    tbody.appendChild(renderUserRow(u));
+  }
+  bindUserRowEvents();
+}
+
+function bindUserRowEvents(){
+  // 升/降權
+  document.querySelectorAll('button[data-role]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const [uid, role] = btn.getAttribute('data-role').split('|');
+      btn.disabled = true; btn.textContent = '處理中…';
+      await fetch('/api/admin/users/role', {
+        method:'POST', credentials:'include',
+        headers:{'content-type':'application/json'},
+        body: JSON.stringify({ uid, role })
+      });
+      location.reload();
+    }
+  });
+  // 重設密碼
+  document.querySelectorAll('button[data-reset]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const uid = btn.getAttribute('data-reset');
+      const pw = prompt('請輸入新的密碼（至少 8 碼）：');
+      if (!pw) return;
+      if (pw.length < 8) return alert('密碼至少 8 碼');
+      btn.disabled = true; btn.textContent = '重設中…';
+      const r = await fetch('/api/admin/users/reset-password', {
+        method:'POST', credentials:'include',
+        headers:{'content-type':'application/json'},
+        body: JSON.stringify({ uid, newPassword: pw })
+      });
+      if (!r.ok) alert('重設失敗');
+      else alert('已重設密碼');
+      btn.disabled = false; btn.textContent = '重設密碼';
+    }
+  });
+  // 刪除使用者
+  document.querySelectorAll('button[data-u-del]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const uid = btn.getAttribute('data-u-del');
+      if (!confirm('確定刪除這個使用者？（可在後端開啟 cascade 參數一併刪分發）')) return;
+      btn.disabled = true; btn.textContent = '刪除中…';
+      const r = await fetch('/api/admin/users/delete', {
+        method:'POST', credentials:'include',
+        headers:{'content-type':'application/json'},
+        body: JSON.stringify({ uid, cascade: false })
+      });
+      if (r.ok) btn.closest('tr').remove();
+      else alert('刪除失敗');
+    }
+  });
+}
 
   
 $('logout').addEventListener('click', async (e)=>{
