@@ -473,31 +473,41 @@ function openDeleteModal(code){
   $('modal-del').style.display = 'flex';
 }
 
-$('btn-del-cancel').addEventListener('click', ()=>{
-  $('modal-del').style.display = 'none';
-  pendingDeleteCode = null;
-});
 
 $('btn-del-confirm').addEventListener('click', async ()=>{
   const code = pendingDeleteCode;
   if (!code) return;
   $('d-err').textContent = '刪除中…';
   try {
-    const r = await fetch('../functions/api/links/delete', {
+    const r = await fetch('/api/links/delete', {        // ← 這裡改成正確路徑
       method: 'POST',
       credentials: 'include',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ code })
     });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data?.error || '刪除失敗');
-    $('modal-del').style.display = 'none';
+
+    // 安全解析（避免 204/非 JSON）
+    let data = null;
+    const ct = r.headers.get('content-type') || '';
+    if (ct.includes('application/json')) {
+      data = await r.json();
+    } else {
+      // 非 JSON 也給個最小結果，讓 UI 繼續往下走
+      data = { ok: r.ok };
+    }
+     if (!r.ok || data?.ok !== true) {
+      throw new Error((data && data.error) || `刪除失敗（HTTP ${r.status}）`);
+    }
+     $('modal-del').style.display = 'none';
     pendingDeleteCode = null;
     await loadList(); // 重新讀取列表
   } catch (e) {
     $('d-err').textContent = String(e?.message || e);
   }
 });
+
+
+
 
 // ===== 新增分發（Modal + 上傳 + 解析 IPA） =====
 const modal = document.getElementById("modal");
