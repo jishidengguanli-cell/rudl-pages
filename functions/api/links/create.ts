@@ -1,132 +1,101 @@
 // functions/api/links/create.ts
-export interface Env {
-  LINKS: KVNamespace;
+import { readCookie, verifySession, type AuthEnv } from "../../_lib/auth";
+
+type Lang = "zh-TW" | "zh-CN" | "en" | "ru" | "vi";
+
+export interface Env extends AuthEnv {
+  LINKS: KVNamespace; // 你綁定的 rudl-links
 }
 
-type CreateBody = {
-  title?: string;
-  version?: string;
-  bundle_id?: string;
-  lang?: string;       // 預設語系
-  apkKey?: string;
-  ipaKey?: string;
-  ipaMeta?: { bundle_id?: string; version?: string } | null;
-};
+// 產生 4 碼大小寫英文字，並確認在 KV 不重複（用 link: 作為唯一檢查）
+async function genCode(links: KVNamespace): Promise<string> {
+  const abc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  while (true) {
+    let c = "";
+    for (let i = 0; i < 4; i++) c += abc[Math.floor(Math.random() * abc.length)];
+    const exists = await links.get(`link:${c}`);
+    if (!exists) return c;
+  }
+}
 
-const ALLOWED_LANGS = ["en", "zh-TW", "zh-CN", "ru", "vi"];
-
-function json(data: any, status = 200): Response {
+function json(status: number, data: any) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" }
+    headers: { "content-type": "application/json; charset=utf-8" },
   });
 }
 
-function randCode(len = 4) {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  let s = "";
-  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
-  return s;
-}
-
-async function genUniqueCode(kv: KVNamespace): Promise<string> {
-  for (let i = 0; i < 8; i++) {
-    const c = randCode(4);
-    const hit = await kv.get(c);
-    if (!hit) return c;
-  }
-  // 極小機率撞碼很多次就拉長
-  for (let i = 0; i < 8; i++) {
-    const c = randCode(5);
-    const hit = await kv.get(c);
-    if (!hit) return c;
-  }
-  throw new Error("failed to generate unique short code");
-}
-
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   try {
-    if (!env.LINKS) {
-      // 綁定不存在也會造成 .get is not a function / undefined.get
-      throw new Error("KV binding LINKS is missing");
-    }
+    const { request, env } = ctx;
 
-    // 兼容 JSON 與 form-data
-    const ct = request.headers.get("content-type") || "";
-    let body: CreateBody = {};
+    // 1) 驗證登入
+    const cookie = request.headers.get("cookie") || "";
+    const sid = readCookie(cookie, "sid");
+    const sess = await verifySession(env, sid);
+    if (!sess) return json(401, { error: "unauthorized" });
 
-    if (ct.includes("application/json")) {
-      const raw = await request.json().catch(() => ({}));
-      body = (raw || {}) as CreateBody;
-    } else if (ct.includes("multipart/form-data")) {
-      const form = await request.formData();
-      body = {
-        title: form.get("title")?.toString() || "",
-        version: form.get("version")?.toString() || "",
-        bundle_id: form.get("bundle_id")?.toString() || "",
-        lang: form.get("lang")?.toString() || undefined,
-        apkKey: form.get("apkKey")?.toString() || "",
-        ipaKey: form.get("ipaKey")?.toString() || "",
-        // 如果前端用 form，ipaMeta 可不傳；解析放前端做了
+    // 2) 解析 body
+    const body = await request
+      .json()
+      .catch(() => null) as {
+        title?: string;
+        version?: string;
+        bundle_id?: string;
+        lang?: string;
+        apkKey?: string;
+        ipaKey?: string;
+        ipaMeta?: { bundle_id?: string; version?: string };
       };
-    } else {
-      // 其他 content-type，一律當 JSON 嘗試
-      const raw = await request.json().catch(() => ({}));
-      body = (raw || {}) as CreateBody;
+
+    if (!body) return json(400, { error: "bad_request" });
+
+    // 語系處理（預設英文）
+    let lang: Lang = "en";
+    const raw = (body.lang || "").trim();
+    if (["zh-TW", "zh-CN", "en", "ru", "vi"].includes(raw)) {
+      lang = raw as Lang;
     }
 
-    // 取出欄位 + 預設值
-    let {
-      title = "",
-      version = "",
-      bundle_id = "",
-      lang = "en",
-      apkKey = "",
-      ipaKey = "",
-      ipaMeta = null
-    } = body;
+    // 3) 產生唯一短碼
+    const code = await genCode(env.LINKS);
 
-    // 語系白名單
-    if (!ALLOWED_LANGS.includes(lang)) lang = "en";
-
-    // 下載頁顯示欄位：若有 ipaMeta 就覆寫顯示
-    const displayBundle = (ipaMeta?.bundle_id || bundle_id || "").trim();
-    const displayVersion = (ipaMeta?.version || version || "").trim();
-
-    if (!apkKey && !ipaKey) {
-      return json({ error: "bad_request", detail: "apkKey 或 ipaKey 至少要有一個" }, 400);
-    }
-
-    // 產生唯一短碼
-    const code = await genUniqueCode(env.LINKS);
-    const now = Date.now();
-
-    // 寫 KV（你原本 list 用到的欄位可照舊保留/擴充）
-    const rec = {
+    // 4) 整理要存的 link 物件
+    const link = {
       id: code,
       code,
-      title: title.trim(),
-      version: displayVersion,
-      bundle_id: displayBundle,
-      lang,                // <-- 下載頁預設語系
-      apk_key: apkKey || null,
-      ipa_key: ipaKey || null,
-      createdAt: now,
-      updatedAt: now,
-      // 初始統計
-      d_today_apk: 0,
-      d_today_ios: 0,
-      d_total_apk: 0,
-      d_total_ios: 0
+      owner: sess.user.id,
+      title: body.title || "",
+      version: body.version || "",
+      bundle_id: body.bundle_id || "",
+      lang,                 // 下載頁預設語系
+      apk_key: body.apkKey || "",
+      ipa_key: body.ipaKey || "",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      today_apk: 0,
+      today_ipa: 0,
+      total_apk: 0,
+      total_ipa: 0,
     };
 
-    await env.LINKS.put(code, JSON.stringify(rec));
+    // 若前端有帶到從 IPA 解析的 meta，且顯示欄位沒填，就用解析值補上
+    if (body.ipaMeta) {
+      if (!link.bundle_id && body.ipaMeta.bundle_id) link.bundle_id = body.ipaMeta.bundle_id;
+      if (!link.version   && body.ipaMeta.version)   link.version   = body.ipaMeta.version;
+    }
 
-    return json({ ok: true, code });
+    // 5) 寫入主資料（一定要含 prefix：link:）
+    await env.LINKS.put(`link:${code}`, JSON.stringify(link));
+
+    // 6) 更新使用者索引（讓 list 能快速撈）
+    const idxKey = `user:${sess.user.id}`;
+    const oldIdx = (await env.LINKS.get(idxKey)) || "";
+    const nextIdx = oldIdx ? `${code} ${oldIdx}` : code;
+    await env.LINKS.put(idxKey, nextIdx);
+
+    return json(200, { ok: true, code, url: `/d/${code}`, lang });
   } catch (e: any) {
-    // 把錯誤寫到日誌，方便在 Cloudflare Pages → Deployments → View details → Functions logs 看到
-    console.error("links/create error:", e);
-    return json({ error: "internal", detail: e?.message || String(e) }, 500);
+    return json(500, { error: "internal", detail: e?.message || String(e) });
   }
 };
