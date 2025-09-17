@@ -561,11 +561,12 @@ document.getElementById("btn-create").addEventListener("click", async ()=>{
 
   // 建立分發（顯示欄位 + 檔案 key + ipaMeta）
   try {
+    const lang = $("lang").value || "en";
     const r = await fetch("/api/links/create", {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title, version, bundle_id: bundle, apkKey, ipaKey, ipaMeta })
+      body: JSON.stringify({ title, version, bundle_id: bundle, apkKey, ipaKey, ipaMeta, lang })
     });
     const data = await r.json();
     if (!r.ok) { throw new Error(data?.error || "建立分發失敗"); }
