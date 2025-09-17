@@ -523,22 +523,27 @@ function resetModal(){
   $("err").textContent = "";
 }
 
-document.getElementById("btn-create").addEventListener("click", async ()=>{
-  const title = $("title").value.trim();
+// 取代你原本的：document.getElementById("btn-create").addEventListener("click", async ()=>{ ... })
+document.getElementById("btn-create").addEventListener("click", async () => {
+  const title   = $("title").value.trim();
   const version = $("version").value.trim();   // 顯示用
-  const bundle = $("bundle").value.trim();     // 顯示用
+  const bundle  = $("bundle").value.trim();    // 顯示用
   const apkFile = $("apk").files[0];
   const ipaFile = $("ipa").files[0];
-  const err = $("err"); err.textContent = "";
+  const err     = $("err");
+  err.textContent = "";
 
-  if (!apkFile && !ipaFile) { err.textContent = "請至少選擇一個檔案（APK 或 IPA）。"; return; }
+  if (!apkFile && !ipaFile) {
+    err.textContent = "請至少選擇一個檔案（APK 或 IPA）。";
+    return;
+  }
 
-  // 先嘗試從本地解析 IPA 的 bundleId/version（失敗就算了，不擋流程）
+  // 嘗試本地解析 IPA，失敗不擋流程
   let ipaMeta = null;
   if (ipaFile) {
     try {
       $("t-ipa").textContent = "解析 IPA 中…";
-      const meta = await inspectIpa(ipaFile); // {bundle_id, version}
+      const meta = await inspectIpa(ipaFile); // { bundle_id, version }
       if (meta?.bundle_id || meta?.version) ipaMeta = meta;
       $("t-ipa").textContent = "解析完成";
     } catch (e) {
@@ -546,42 +551,81 @@ document.getElementById("btn-create").addEventListener("click", async ()=>{
     }
   }
 
-  // 逐一上傳（APK -> IPA）
+  // 逐一上傳（APK → IPA）
   let apkKey = "", ipaKey = "";
   try {
     if (apkFile) {
       $("t-apk").textContent = "初始化上傳…";
-      apkKey = await uploadFile(apkFile, "android", $("p-apk"), p => $("t-apk").textContent = p);
+      apkKey = await uploadFile(
+        apkFile,
+        "android",
+        $("p-apk"),
+        p => $("t-apk").textContent = p
+      );
     }
     if (ipaFile) {
       $("t-ipa").textContent = "初始化上傳…";
-      ipaKey = await uploadFile(ipaFile, "ios", $("p-ipa"), p => $("t-ipa").textContent = p);
+      ipaKey = await uploadFile(
+        ipaFile,
+        "ios",
+        $("p-ipa"),
+        p => $("t-ipa").textContent = p
+      );
     }
-  } catch(e){ err.textContent = "上傳失敗：" + (e?.message || e); return; }
+  } catch (e) {
+    err.textContent = "上傳失敗：" + (e?.message || e);
+    return;
+  }
 
-  // 建立分發（顯示欄位 + 檔案 key + ipaMeta）
+  // 建立分發（顯示欄位 + 檔案 key + ipaMeta + 預覽語系）
   try {
-    const lang = $('lang').value || 'en';
+    const lang = $("lang").value || "en";
 
-    const r = await fetch('/api/links/create', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ title, version, bundle_id: bundle, lang, apkKey, ipaKey, ipaMeta })
+    const r = await fetch("/api/links/create", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title,
+        version,
+        bundle_id: bundle,
+        lang,
+        apkKey,
+        ipaKey,
+        ipaMeta
+      })
     });
+
     const txt = await r.text();
-    let data;
+    let data = {};
     try {
       data = txt ? JSON.parse(txt) : {};
     } catch {
       throw new Error(`建立分發失敗（HTTP ${r.status}）: ${txt.slice(0, 200)}`);
     }
-    
-    if (!r.ok || !data?.ok) {
-      throw new Error(data?.error || `建立分發失敗（HTTP ${r.status}）`);
-    }
-});
 
+    if (!r.ok || !data?.ok) {
+      throw new Error(data?.error || data?.detail || `建立分發失敗（HTTP ${r.status}）`);
+    }
+
+    // 成功：關閉 modal、清表單並重新整理（或呼叫你的列表刷新函式）
+    $("modal").style.display = "none";
+    $("title").value = "";
+    $("version").value = "";
+    $("bundle").value = "";
+    $("apk").value = "";
+    $("ipa").value = "";
+    $("t-apk").textContent = "";
+    $("t-ipa").textContent = "";
+    $("p-apk").style.width = "0%";
+    $("p-ipa").style.width = "0%";
+
+    // 如果你有自訂的 List()/loadList()，可以改用它；沒有就直接 reload
+    location.reload();
+  } catch (e) {
+    err.textContent = e?.message || String(e);
+  }
+});
 // 呼叫 /api/upload/init 取得預簽名 URL，並用 XHR PUT 上傳（可顯示進度）
 async function uploadFile(file, folder, barEl, setText){
   setText("請求預簽名 URL…");
