@@ -41,79 +41,34 @@
     column-gap: 12px;
     align-items: end;
   }
-  .panel .grid-2 .field {
-    display: flex; 
-    flex-direction: column;
-  }
-  
-  /* 分發列表外框：跟表格同寬（左右不留空），上方內容自己加邊距 */
-  #list-panel{
-    max-width:1500px;
-    margin:20px auto;
-    padding:12px 0 16px;         /* 左右 0，框寬 = 表格寬 */
-    overflow:hidden;             /* 圓角不外溢 */
-  }
-  
-  /* 上方標題＋右側按鈕：自己補左右 padding，就不影響表格對齊 */
-  .panel-head{
-    display:flex; align-items:center; justify-content:space-between; gap:12px;
-    padding:0 16px 8px;
-  }
-  #list-panel #me,
-  #list-panel #empty{ padding:0 16px; }
-  
-  /* 表格卡片化：用分離模式 + 陰影畫分隔線，邊線會「接」起來 */
-  #tbl{
-    width:100%;
-    table-layout:fixed;
-    border-collapse:separate;
-    border-spacing:0 12px;       /* 列與列之間的縫隙 */
-  }
+  .panel .grid-2 .field { display: flex; flex-direction: column; }
+  /* 分發列表外框與表格同寬 */
+  #list-panel{ max-width:1500px; margin:20px auto; padding:12px 0 16px; overflow:hidden; }
+  .panel-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px 8px; }
+  #list-panel #me, #list-panel #empty{ padding:0 16px; }
+  /* 表格卡片化 */
+  #tbl{ width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0 12px; }
   #tbl th,#tbl td{ border:none; }
-  
-  /* 表頭 */
-  #tbl thead th{
-    position:sticky; top:0; z-index:1;
-    background:#0f172a;
-    font-weight:600; font-size:14.5px; padding:12px 14px;
-    box-shadow: inset 0 -1px 0 #1f2937;     /* 底線 */
-  }
-  
-  /* 每列像卡片：圓角 + 內距 + 內部分隔線 */
-  #tbl tbody td{
-    background:#0b1220;
-    padding:14px 16px;
-    vertical-align:middle;
-    font-size:14.5px; line-height:1.6;
-    box-shadow: inset 0 -1px 0 #1f2937;      /* 每列底線 */
-  }
-  #tbl tbody td+td{
-    /* 加上垂直分隔線，讓邊線視覺上「接」在一起 */
-    box-shadow: inset 0 -1px 0 #1f2937, inset 1px 0 0 #1f2937;
-  }
+  #tbl thead th{ position:sticky; top:0; z-index:1; background:#0f172a; font-weight:600; font-size:14.5px; padding:12px 14px; box-shadow: inset 0 -1px 0 #1f2937; }
+  #tbl tbody td{ background:#0b1220; padding:14px 16px; vertical-align:middle; font-size:14.5px; line-height:1.6; box-shadow: inset 0 -1px 0 #1f2937; }
+  #tbl tbody td+td{ box-shadow: inset 0 -1px 0 #1f2937, inset 1px 0 0 #1f2937; }
   #tbl tbody tr:hover td{ background:#0f1830; }
   #tbl tbody td:first-child{ border-radius:12px 0 0 12px; }
   #tbl tbody td:last-child{  border-radius:0 12px 12px 0; }
-  
-  /* 欄寬（總寬控制在 ~1260，1280 裡面就不會橫向捲動） */
-  #tbl th:nth-child(1), #tbl td:nth-child(1){ width: 70px; }  /* 短碼 */
-  #tbl th:nth-child(2), #tbl td:nth-child(2){ width: 70px; }  /* 標題 */
-  #tbl th:nth-child(3), #tbl td:nth-child(3){ width: 70px; }  /* 版本 */
+  /* 欄寬 */
+  #tbl th:nth-child(1), #tbl td:nth-child(1){ width: 70px; }
+  #tbl th:nth-child(2), #tbl td:nth-child(2){ width: 70px; }
+  #tbl th:nth-child(3), #tbl td:nth-child(3){ width: 70px; }
   #tbl th:nth-child(4), #tbl td:nth-child(4){ width: 70px; }  /* 語系 */
-  #tbl th:nth-child(5), #tbl td:nth-child(5){ width: 70px; }  /* 檔案 */
-  #tbl th:nth-child(6), #tbl td:nth-child(6){ width:150px; }  /* 建立時間 */
-  #tbl th:nth-child(7), #tbl td:nth-child(7){ width:350px; }  /* 下載數 */
-  #tbl th:nth-child(8), #tbl td:nth-child(8){ width:100px; }  /* 操作 */
-  #tbl th:nth-child(9), #tbl td:nth-child(9){ width:270px; }  /* 下載頁 */
-  
-  /* 下載頁顯示完整網址，但避免超出邊框時還是能優雅截斷 */
-  .small .link{ display:inline-block; max-width: 228px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  
-  /* 小元件間距（沿用你現有風格） */
+  #tbl th:nth-child(5), #tbl td:nth-child(5){ width: 70px; }
+  #tbl th:nth-child(6), #tbl td:nth-child(6){ width:150px; }
+  #tbl th:nth-child(7), #tbl td:nth-child(7){ width:350px; }
+  #tbl th:nth-child(8), #tbl td:nth-child(8){ width:100px; }
+  #tbl th:nth-child(9), #tbl td:nth-child(9){ width:270px; }
+  .small .link{ display:inline-block; max-width:228px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .tag{ margin-right:6px; margin-top:4px; display:inline-flex; }
   .btn, .copy, .edit, .danger{ margin-right:8px; }
   .small2{ font-size:12.5px; color:#9ca3af; line-height:1.7; }
-
 </style>
 
 <header>
@@ -208,7 +163,6 @@
   </div>
 </div>
 
-
 <!-- 編輯分發 Modal -->
 <div class="modal" id="modal-edit">
   <div class="panel">
@@ -251,7 +205,6 @@
   </div>
 </div>
 
-
 <!-- 刪除確認 Modal -->
 <div class="modal" id="modal-del">
   <div class="panel">
@@ -268,9 +221,10 @@
 </div>
 
 <script>
-let itemsByCode = {};        // 供編輯彈窗帶入資料
-let currentEditCode = null;  // 目前在編輯哪一筆
+let itemsByCode = {};
+let currentEditCode = null;
 let pendingDeleteCode = null;
+
 // ===== 登入保護 & 初始載入 =====
 (async () => {
   const meEl = document.getElementById("me");
@@ -280,7 +234,6 @@ let pendingDeleteCode = null;
     let me;
     try { me = JSON.parse(txt); }
     catch { throw new Error("/api/auth/me 非 JSON，回傳： " + txt.slice(0, 160)); }
-
     if (!r.ok || !me?.authenticated) {
       location.href = "/login.html?next=/dashboard.html";
       return;
@@ -327,27 +280,23 @@ async function loadList() {
 
     for (const it of items) {
       itemsByCode[it.code] = it;
-    
       const hasApk = !!it.apk_key, hasIpa = !!it.ipa_key;
       const S = it.stats || {};
       const today = S.today || 0, total = S.total || 0;
       const tApk = S.apk_today || 0, tIpa = S.ipa_today || 0;
       const aApk = S.apk_total || 0, aIpa = S.ipa_total || 0;
 
-      
-      
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td><code>${it.code}</code></td>
         <td>${esc(it.title||"")}</td>
         <td>${esc(it.version||"")}</td>
-        <td>${langLabel(it.lang)}</td> 
+        <td>${langLabel(it.lang)}</td>
         <td>
           ${hasApk?'<span class="tag">APK</span>':''}
           ${hasIpa?'<span class="tag">IPA</span>':''}
         </td>
         <td>${fmt(it.createdAt)}</td>
-    
         <td>
           <div class="small2">
             今日：<span class="tag">${today}</span>
@@ -356,12 +305,10 @@ async function loadList() {
             （APK <span class="tag">${aApk}</span> ／ iOS <span class="tag">${aIpa}</span>）
           </div>
         </td>
-    
         <td>
           <button class="btn edit" data-code="${it.code}">編輯</button>
           <button class="btn danger del" data-code="${it.code}">刪除</button>
         </td>
-    
         <td>
           <div class="small">
             <a class="link" href="/d/${it.code}" target="_blank">${absLink(it.code)}</a>
@@ -376,140 +323,89 @@ async function loadList() {
     empty.textContent = "讀取失敗：" + (err?.message || err);
   }
 }
-
 function esc(s){return String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]))}
 function fmt(ts){if(!ts)return ""; const d=new Date(ts); return `${d.getFullYear()}-${(d.getMonth()+1+"").padStart(2,"0")}-${(d.getDate()+"").padStart(2,"0")} ${d.toTimeString().slice(0,8)}`;}
 function absLink(code){ return `${location.origin}/d/${code}`; }
-function langLabel(v){
-        const map = {"en":"English","ru":"Русский","vi":"Tiếng Việt","zh-TW":"繁中","zh-CN":"简体"};
-        return map[v] || v || "-";
-      }
-function openEditModal(code){
-  const it = itemsByCode[code];
-  if (!it) return alert('找不到資料');
+function langLabel(v){ const map = {"en":"English","ru":"Русский","vi":"Tiếng Việt","zh-TW":"繁中","zh-CN":"简体"}; return map[v] || v || "-"; }
 
+// ===== 編輯 =====
+function $(id){ return document.getElementById(id); }
+function openEditModal(code){
+  const it = itemsByCode[code]; if (!it) return alert('找不到資料');
   currentEditCode = code;
   $('e-title').value   = it.title || '';
   $('e-version').value = it.version || '';
   $('e-bundle').value  = it.bundle_id || '';
-  $('e-lang').value = it.lang || 'en';   // 預設en
+  $('e-lang').value    = it.lang || 'en';
   $('e-err').textContent = '';
   $('modal-edit').style.display = 'flex';
 }
-
 $('btn-edit-cancel').addEventListener('click', ()=>{
   $('modal-edit').style.display = 'none';
   currentEditCode = null;
 });
-
 $('btn-edit-save').addEventListener('click', async ()=>{
-  const code = currentEditCode;
-  if (!code) return;
-
+  const code = currentEditCode; if (!code) return;
   const title     = $('e-title').value.trim();
   const version   = $('e-version').value.trim();
   const bundle_id = $('e-bundle').value.trim();
-  const lang      = $('e-lang').value;      // 讀語系
-  
-  
-  
+  const lang      = $('e-lang').value;
   $('e-err').textContent = '儲存中…';
-
   try {
     const r = await fetch('/api/links/update', {
       method: 'POST',
       credentials: 'include',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ code, title, version, bundle_id, lang }) // 一起送
+      body: JSON.stringify({ code, title, version, bundle_id, lang })
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data?.error || '更新失敗');
     $('modal-edit').style.display = 'none';
     currentEditCode = null;
-    await loadList(); // 重新載入列表
-  } catch (e) {
-    $('e-err').textContent = String(e?.message || e);
-  }
+    await loadList();
+  } catch (e) { $('e-err').textContent = String(e?.message || e); }
 });
 
-  
-// 一鍵複製（只處理有 data-url 的按鈕）
-document.addEventListener('click', async (ev) => {
-  const btn = ev.target && ev.target.closest ? ev.target.closest('button[data-url]') : null;
-  if (!btn) return;
-  const url = btn.getAttribute('data-url') || '';
-  try {
-    await navigator.clipboard.writeText(url);
-    const old = btn.textContent;
-    btn.textContent = '已複製';
-    btn.disabled = true;
-    setTimeout(()=>{ btn.textContent = old; btn.disabled = false; }, 1200);
-  } catch(e){}
-});
-
-// 事件委派：編輯
+// ===== 刪除 =====
 document.addEventListener('click', (ev) => {
   const btn = ev.target && ev.target.closest ? ev.target.closest('.edit') : null;
   if (!btn) return;
-  const code = btn.getAttribute('data-code');
-  openEditModal(code);
+  openEditModal(btn.getAttribute('data-code'));
 });
-
-// 事件委派：刪除
 document.addEventListener('click', (ev) => {
   const btn = ev.target && ev.target.closest ? ev.target.closest('.del') : null;
   if (!btn) return;
-  const code = btn.getAttribute('data-code');
-  openDeleteModal(code);
+  openDeleteModal(btn.getAttribute('data-code'));
 });
-
 function openDeleteModal(code){
-  const it = itemsByCode[code];
-  if (!it) return alert('找不到資料');
+  const it = itemsByCode[code]; if (!it) return alert('找不到資料');
   pendingDeleteCode = code;
   $('d-code').textContent = code;
   $('d-title').textContent = it.title || '';
   $('d-err').textContent = '';
   $('modal-del').style.display = 'flex';
 }
-
-
 $('btn-del-confirm').addEventListener('click', async ()=>{
-  const code = pendingDeleteCode;
-  if (!code) return;
+  const code = pendingDeleteCode; if (!code) return;
   $('d-err').textContent = '刪除中…';
   try {
-    const r = await fetch('/api/links/delete', {        // ← 這裡改成正確路徑
+    const r = await fetch('/api/links/delete', {
       method: 'POST',
       credentials: 'include',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ code })
     });
-
-    // 安全解析（避免 204/非 JSON）
     let data = null;
     const ct = r.headers.get('content-type') || '';
-    if (ct.includes('application/json')) {
-      data = await r.json();
-    } else {
-      // 非 JSON 也給個最小結果，讓 UI 繼續往下走
-      data = { ok: r.ok };
-    }
-     if (!r.ok || data?.ok !== true) {
-      throw new Error((data && data.error) || `刪除失敗（HTTP ${r.status}）`);
-    }
-     $('modal-del').style.display = 'none';
+    if (ct.includes('application/json')) data = await r.json(); else data = { ok: r.ok };
+    if (!r.ok || data?.ok !== true) throw new Error((data && data.error) || `刪除失敗（HTTP ${r.status}）`);
+    $('modal-del').style.display = 'none';
     pendingDeleteCode = null;
-    await loadList(); // 重新讀取列表
-  } catch (e) {
-    $('d-err').textContent = String(e?.message || e);
-  }
+    await loadList();
+  } catch (e) { $('d-err').textContent = String(e?.message || e); }
 });
 
-
-
-
-// ===== 新增分發（Modal + 上傳 + 解析 IPA） =====
+// ===== 新增分發 =====
 const modal = document.getElementById("modal");
 document.getElementById("btn-new").addEventListener("click", ()=>{ modal.style.display="flex"; resetModal(); });
 document.getElementById("btn-cancel").addEventListener("click", ()=>{ modal.style.display="none"; });
@@ -523,155 +419,11 @@ function resetModal(){
   $("err").textContent = "";
 }
 
-// 取代你原本的：document.getElementById("btn-create").addEventListener("click", async ()=>{ ... })
-document.getElementById("btn-create").addEventListener("click", async () => {
-  const title   = $("title").value.trim();
-  const version = $("version").value.trim();   // 顯示用
-  const bundle  = $("bundle").value.trim();    // 顯示用
-  const apkFile = $("apk").files[0];
-  const ipaFile = $("ipa").files[0];
-  const err     = $("err");
-  err.textContent = "";
-
-  if (!apkFile && !ipaFile) {
-    err.textContent = "請至少選擇一個檔案（APK 或 IPA）。";
-    return;
-  }
-
-  // 嘗試本地解析 IPA，失敗不擋流程
-  let ipaMeta = null;
-  if (ipaFile) {
-    try {
-      $("t-ipa").textContent = "解析 IPA 中…";
-      const meta = await inspectIpa(ipaFile); // { bundle_id, version }
-      if (meta?.bundle_id || meta?.version) ipaMeta = meta;
-      $("t-ipa").textContent = "解析完成";
-    } catch (e) {
-      $("t-ipa").textContent = "解析失敗（將以顯示資料為準）";
-    }
-  }
-
-  // 逐一上傳（APK → IPA）
-  let apkKey = "", ipaKey = "";
-  try {
-    if (apkFile) {
-      $("t-apk").textContent = "初始化上傳…";
-      apkKey = await uploadFile(
-        apkFile,
-        "android",
-        $("p-apk"),
-        p => $("t-apk").textContent = p
-      );
-    }
-    if (ipaFile) {
-      $("t-ipa").textContent = "初始化上傳…";
-      ipaKey = await uploadFile(
-        ipaFile,
-        "ios",
-        $("p-ipa"),
-        p => $("t-ipa").textContent = p
-      );
-    }
-  } catch (e) {
-    err.textContent = "上傳失敗：" + (e?.message || e);
-    return;
-  }
-
-  // 建立分發（顯示欄位 + 檔案 key + ipaMeta + 預覽語系）
-  try {
-    const lang = $("lang").value || "en";
-
-    const r = await fetch("/api/links/create", {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        title,
-        version,
-        bundle_id: bundle,
-        lang,
-        apkKey,
-        ipaKey,
-        ipaMeta
-      })
-    });
-
-    const txt = await r.text();
-    let data = {};
-    try {
-      data = txt ? JSON.parse(txt) : {};
-    } catch {
-      throw new Error(`建立分發失敗（HTTP ${r.status}）: ${txt.slice(0, 200)}`);
-    }
-
-    if (!r.ok || !data?.ok) {
-      throw new Error(data?.error || data?.detail || `建立分發失敗（HTTP ${r.status}）`);
-    }
-
-    // 成功：關閉 modal、清表單並重新整理（或呼叫你的列表刷新函式）
-    $("modal").style.display = "none";
-    $("title").value = "";
-    $("version").value = "";
-    $("bundle").value = "";
-    $("apk").value = "";
-    $("ipa").value = "";
-    $("t-apk").textContent = "";
-    $("t-ipa").textContent = "";
-    $("p-apk").style.width = "0%";
-    $("p-ipa").style.width = "0%";
-
-    // 如果你有自訂的 List()/loadList()，可以改用它；沒有就直接 reload
-    location.reload();
-  } catch (e) {
-    err.textContent = e?.message || String(e);
-  }
-});
-// 呼叫 /api/upload/init 取得預簽名 URL，並用 XHR PUT 上傳（可顯示進度）
-async function uploadFile(file, folder, barEl, setText){
-  setText("請求預簽名 URL…");
-  const init = await fetch("/api/upload/init", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      filename: file.name,
-      folder,
-      contentType: file.type || (folder==="android" ? "application/vnd.android.package-archive" : "application/octet-stream")
-    })
-  }).then(r => r.json());
-  if (!init?.uploadUrl || !init?.key) throw new Error("取得預簽名 URL 失敗");
-
-  setText("上傳中… 0%");
-  await xhrPut(init.uploadUrl, file, init.contentType, (pct) => {
-    barEl.style.width = pct + "%";
-    setText("上傳中… " + pct + "%");
-  });
-  setText("完成");
-  return init.key; // 回傳 R2 key
-}
-
-function xhrPut(url, file, contentType, onProgress){
-  return new Promise((resolve, reject)=>{
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url, true);
-    if (contentType) xhr.setRequestHeader("Content-Type", contentType);
-    xhr.upload.onprogress = (e)=>{ if (e.lengthComputable && onProgress) onProgress(Math.round(e.loaded*100/e.total)); };
-    xhr.onload = ()=>{ (xhr.status>=200 && xhr.status<300) ? resolve(null) : reject(new Error("HTTP "+xhr.status+" "+xhr.responseText)); };
-    xhr.onerror = ()=> reject(new Error("Network error"));
-    xhr.send(file);
-  });
-}
-
-function $(id){ return document.getElementById(id); }
-
-// 解析 IPA：讀 ZIP 的中央目錄找 Payload/*.app/Info.plist，支援 deflate 與未壓縮。
-// Info.plist 若是 XML 直接解析；若是 binary plist（bplist00），使用簡易解析器取字串與字典。
+// 解析 IPA（local 解析 Info.plist）
 async function inspectIpa(file) {
   const buf = await file.arrayBuffer();
   const view = new DataView(buf);
-
-  // 1) 找 EOCD（End of Central Directory），從檔尾往回 64KB 搜尋
-  const eocdSig = 0x06054b50;
-  const maxBack = Math.min(65557, buf.byteLength);
+  const eocdSig = 0x06054b50; const maxBack = Math.min(65557, buf.byteLength);
   let eocd = -1;
   for (let i = buf.byteLength - 22; i >= buf.byteLength - maxBack; i--) {
     if (view.getUint32(i, true) === eocdSig) { eocd = i; break; }
@@ -680,8 +432,6 @@ async function inspectIpa(file) {
   const cdCount = view.getUint16(eocd + 10, true);
   const cdSize  = view.getUint32(eocd + 12, true);
   const cdOff   = view.getUint32(eocd + 16, true);
-
-  // 2) 走訪 Central Directory 找 Info.plist 的 entry
   const cdView = new DataView(buf, cdOff, cdSize);
   let off = 0, entry = null;
   for (let i = 0; i < cdCount; i++) {
@@ -694,182 +444,139 @@ async function inspectIpa(file) {
     const localOff   = cdView.getUint32(off + 42, true);
     const nameBytes  = new Uint8Array(buf, cdOff + off + 46, nameLen);
     const name       = new TextDecoder().decode(nameBytes);
-
-    if (/^Payload\/[^/]+\.app\/Info\.plist$/i.test(name)) {
-      entry = { compMethod, compSize, localOff, name };
-      break;
-    }
+    if (/^Payload\/[^/]+\.app\/Info\.plist$/i.test(name)) { entry = { compMethod, compSize, localOff }; break; }
     off += 46 + nameLen + extraLen + commLen;
   }
   if (!entry) throw new Error("Info.plist not found");
-
-  // 3) 讀 Local File Header 找到檔案資料起點
   const lfh = new DataView(buf, entry.localOff, 30);
   if (lfh.getUint32(0, true) !== 0x04034b50) throw new Error("LFH signature mismatch");
   const nameLen = lfh.getUint16(26, true);
   const extraLen = lfh.getUint16(28, true);
   const dataStart = entry.localOff + 30 + nameLen + extraLen;
   const compData = new Uint8Array(buf, dataStart, entry.compSize);
-
-  // 4) 解壓（method 0=store, 8=deflate）
   let plistBytes;
-  if (entry.compMethod === 0) {
-    plistBytes = compData;
-  } else if (entry.compMethod === 8) {
-    if (typeof DecompressionStream !== "undefined") {
-      const ds = new DecompressionStream("deflate-raw");
-      const decompressed = await new Response(new Blob([compData]).stream().pipeThrough(ds)).arrayBuffer();
-      plistBytes = new Uint8Array(decompressed);
-    } else {
-      throw new Error("Deflate not supported in this browser");
-    }
-  } else {
-    throw new Error("Unsupported ZIP compression method: " + entry.compMethod);
-  }
-
-  // 5) 解析 plist（XML or binary）
-  if (plistBytes[0] === 0x3c) { // '<' -> XML
-    const text = new TextDecoder().decode(plistBytes);
-    return parsePlistXML(text);
+  if (entry.compMethod === 0) plistBytes = compData;
+  else if (entry.compMethod === 8) {
+    const ds = new DecompressionStream("deflate-raw");
+    const ab = await new Response(new Blob([compData]).stream().pipeThrough(ds)).arrayBuffer();
+    plistBytes = new Uint8Array(ab);
+  } else throw new Error("Unsupported ZIP compression");
+  if (plistBytes[0] === 0x3c) {
+    const text = new TextDecoder().decode(plistBytes); return parsePlistXML(text);
   }
   const head = new TextDecoder().decode(plistBytes.slice(0, 8));
   if (head.startsWith("bplist0")) {
     const obj = parseBinaryPlist(plistBytes.buffer);
-    return {
-      bundle_id: String(obj["CFBundleIdentifier"] || ""),
-      version:   String(obj["CFBundleShortVersionString"] || obj["CFBundleVersion"] || "")
-    };
+    return { bundle_id: String(obj["CFBundleIdentifier"]||""), version: String(obj["CFBundleShortVersionString"] || obj["CFBundleVersion"] || "") };
   }
   throw new Error("Unknown plist format");
 }
-
 function parsePlistXML(xml) {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
-  const dicts = doc.getElementsByTagName("dict");
-  if (!dicts.length) return { bundle_id:"", version:"" };
-  const dict = dicts[0];
-  const kids = Array.from(dict.children);
-  const map = {};
-  for (let i = 0; i < kids.length - 1; i++) {
-    if (kids[i].tagName === "key") {
-      const k = kids[i].textContent || "";
-      const vNode = kids[i+1];
-      const v = vNode ? (vNode.textContent || "") : "";
-      map[k] = v;
-    }
-  }
-  return {
-    bundle_id: String(map["CFBundleIdentifier"] || ""),
-    version:   String(map["CFBundleShortVersionString"] || map["CFBundleVersion"] || "")
-  };
+  const dicts = doc.getElementsByTagName("dict"); if (!dicts.length) return { bundle_id:"", version:"" };
+  const kids = Array.from(dicts[0].children); const map:any = {};
+  for (let i=0;i<kids.length-1;i++) if(kids[i].tagName==="key"){ const k=kids[i].textContent||""; const vNode=kids[i+1]; const v=vNode?(vNode.textContent||""):""; map[k]=v; }
+  return { bundle_id:String(map["CFBundleIdentifier"]||""), version:String(map["CFBundleShortVersionString"]||map["CFBundleVersion"]||"") };
 }
-
-// 最小版 binary plist 解析器（足夠拿兩個欄位）
 function parseBinaryPlist(buf) {
-  const dv = new DataView(buf);
-  const u8 = new Uint8Array(buf);
-
-  // header
-  const head = new TextDecoder().decode(u8.subarray(0, 8));
-  if (!head.startsWith("bplist0")) throw new Error("not bplist");
-
-  // trailer
-  const trailer = new DataView(buf, u8.length - 32, 32);
-  const offsetSize = trailer.getUint8(6);
-  const objRefSize = trailer.getUint8(7);
-  const numObjects = Number(readUIntBE(trailer, 8, 8));
-  const topObject  = Number(readUIntBE(trailer, 16, 8));
-  const offsetTbl  = Number(readUIntBE(trailer, 24, 8));
-
-  // offsets table
-  const offsets = [];
-  for (let i = 0; i < numObjects; i++) {
-    offsets.push(Number(readUIntBE(dv, offsetTbl + i * offsetSize, offsetSize)));
-  }
-
-  function readObj(idx) {
-    const off = offsets[idx];
-    const t = u8[off];
-    const type = (t & 0xF0) >> 4;
-    const info = (t & 0x0F);
-
-    // helpers
-    function readLen(off0, info0) {
-      if (info0 !== 0x0F) return { l: info0, p: off0 + 1 };
-      const t2    = u8[off0 + 1];
-      const type2 = (t2 & 0xF0) >> 4;
-      const info2 = (t2 & 0x0F);
-      if (type2 !== 0x1) throw new Error("bplist len not int");
-      const nBytes = 1 << info2;
-      const val    = Number(readUIntBE(dv, off0 + 2, nBytes));
-      return { l: val, p: off0 + 2 + nBytes };
-    }
-
-    // types
-    if (type === 0x0) {          // null/bool
-      if (info === 0x8) return false;
-      if (info === 0x9) return true;
-      return null;
-    }
-    if (type === 0x1) {          // integer
-      const nBytes = 1 << info;
-      return Number(readUIntBE(dv, off + 1, nBytes));
-    }
-    if (type === 0x2) {          // real
-      const nBytes = 1 << info;
-      if (nBytes === 4) return dv.getFloat32(off + 1, false);
-      if (nBytes === 8) return dv.getFloat64(off + 1, false);
-      return null;
-    }
-    if (type === 0x4) {          // data
-      const lp = readLen(off, info);
-      return u8.slice(lp.p, lp.p + lp.l);
-    }
-    if (type === 0x5) {          // ascii string
-      const lp = readLen(off, info);
-      return new TextDecoder().decode(u8.subarray(lp.p, lp.p + lp.l));
-    }
-    if (type === 0x6) {          // utf-16-be string
-      const lp = readLen(off, info);
-      let s = "";
-      for (let i = 0; i < lp.l; i++) s += String.fromCharCode(dv.getUint16(lp.p + i * 2, false));
-      return s;
-    }
-    if (type === 0xA) {          // array
-      const lp = readLen(off, info);
-      const arr = [];
-      for (let i = 0; i < lp.l; i++) {
-        const objRef = Number(readUIntBE(dv, lp.p + i * objRefSize, objRefSize));
-        arr.push(readObj(objRef));
-      }
-      return arr;
-    }
-    if (type === 0xD) {          // dict
-      const lp = readLen(off, info);
-      const keys = []; const vals = [];
-      for (let i = 0; i < lp.l; i++) {
-        const keyRef = Number(readUIntBE(dv, lp.p + i * objRefSize, objRefSize));
-        keys.push(readObj(keyRef));
-      }
-      const vs = lp.p + lp.l * objRefSize;
-      for (let i = 0; i < lp.l; i++) {
-        const valRef = Number(readUIntBE(dv, vs + i * objRefSize, objRefSize));
-        vals.push(readObj(valRef));
-      }
-      const o = {};
-      for (let i = 0; i < lp.l; i++) o[String(keys[i])] = vals[i];
-      return o;
-    }
+  const dv=new DataView(buf), u8=new Uint8Array(buf);
+  const head=new TextDecoder().decode(u8.subarray(0,8)); if(!head.startsWith("bplist0")) throw new Error("not bplist");
+  const trailer=new DataView(buf,u8.length-32,32);
+  const offsetSize=trailer.getUint8(6), objRefSize=trailer.getUint8(7);
+  const numObjects=Number(readUIntBE(trailer,8,8)), topObject=Number(readUIntBE(trailer,16,8)), offsetTbl=Number(readUIntBE(trailer,24,8));
+  const offsets=[] as number[]; for(let i=0;i<numObjects;i++) offsets.push(Number(readUIntBE(dv,offsetTbl+i*offsetSize,offsetSize)));
+  function readObj(idx:number):any{
+    const off=offsets[idx]; const t=u8[off]; const type=(t&0xF0)>>4; const info=(t&0x0F);
+    function readLen(off0:number,info0:number){ if(info0!==0x0F) return {l:info0,p:off0+1}; const t2=u8[off0+1]; const type2=(t2&0xF0)>>4; const info2=(t2&0x0F);
+      if(type2!==0x1) throw new Error("bplist len not int"); const nBytes=1<<info2; const val=Number(readUIntBE(dv,off0+2,nBytes)); return {l:val,p:off0+2+nBytes}; }
+    if(type===0x0){ if(info===0x8) return false; if(info===0x9) return true; return null; }
+    if(type===0x1){ const nBytes=1<<info; return Number(readUIntBE(dv,off+1,nBytes)); }
+    if(type===0x2){ const nBytes=1<<info; if(nBytes===4) return dv.getFloat32(off+1,false); if(nBytes===8) return dv.getFloat64(off+1,false); return null; }
+    if(type===0x4){ const lp=readLen(off,info); return u8.slice(lp.p,lp.p+lp.l); }
+    if(type===0x5){ const lp=readLen(off,info); return new TextDecoder().decode(u8.subarray(lp.p,lp.p+lp.l)); }
+    if(type===0x6){ const lp=readLen(off,info); let s=""; for(let i=0;i<lp.l;i++) s+=String.fromCharCode(dv.getUint16(lp.p+i*2,false)); return s; }
+    if(type===0xA){ const lp=readLen(off,info); const arr=[]; for(let i=0;i<lp.l;i++){ const objRef=Number(readUIntBE(dv,lp.p+i*objRefSize,objRefSize)); arr.push(readObj(objRef)); } return arr; }
+    if(type===0xD){ const lp=readLen(off,info); const keys=[],vals=[]; for(let i=0;i<lp.l;i++){ const keyRef=Number(readUIntBE(dv,lp.p+i*objRefSize,objRefSize)); keys.push(readObj(keyRef)); }
+      const vs=lp.p+lp.l*objRefSize; for(let i=0;i<lp.l;i++){ const valRef=Number(readUIntBE(dv,vs+i*objRefSize,objRefSize)); vals.push(readObj(valRef)); }
+      const o:any={}; for(let i=0;i<lp.l;i++) o[String(keys[i])]=vals[i]; return o; }
     return null;
   }
+  function readUIntBE(dv0:DataView,off0:number,len0:number){ let n=0n; for(let i=0;i<len0;i++) n=(n<<8n)|BigInt(dv0.getUint8(off0+i)); return n; }
+  const root=readObj(topObject); return root||{};
+}
 
-  function readUIntBE(dv0, off0, len0) {
-    let n = 0n;
-    for (let i = 0; i < len0; i++) n = (n << 8n) | BigInt(dv0.getUint8(off0 + i));
-    return n;
+// 建立：上傳檔案（R2 已由 /api/upload/init 負責）＋呼叫 /api/links/create
+document.getElementById("btn-create").addEventListener("click", async () => {
+  const title   = $("title").value.trim();
+  const version = $("version").value.trim();
+  const bundle  = $("bundle").value.trim();
+  const apkFile = $("apk").files[0];
+  const ipaFile = $("ipa").files[0];
+  const err     = $("err"); err.textContent = "";
+  if (!apkFile && !ipaFile) { err.textContent = "請至少選擇一個檔案（APK 或 IPA）。"; return; }
+
+  // 本地嘗試解析 IPA
+  let ipaMeta = null;
+  if (ipaFile) {
+    try { $("t-ipa").textContent = "解析 IPA 中…"; const meta = await inspectIpa(ipaFile); if (meta?.bundle_id || meta?.version) ipaMeta = meta; $("t-ipa").textContent = "解析完成"; }
+    catch { $("t-ipa").textContent = "解析失敗（將以顯示資料為準）"; }
   }
 
-  const root = readObj(topObject);
-  return root || {};
+  // 逐一上傳
+  let apkKey = "", ipaKey = "";
+  try {
+    if (apkFile) { $("t-apk").textContent = "初始化上傳…"; apkKey = await uploadFile(apkFile, "android", $("p-apk"), p => $("t-apk").textContent = p); }
+    if (ipaFile) { $("t-ipa").textContent = "初始化上傳…"; ipaKey = await uploadFile(ipaFile, "ios", $("p-ipa"), p => $("t-ipa").textContent = p); }
+  } catch (e) { err.textContent = "上傳失敗：" + (e?.message || e); return; }
+
+  try {
+    const lang = $("lang").value || "en";
+    const r = await fetch("/api/links/create", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title, version, bundle_id: bundle, lang, apkKey, ipaKey, ipaMeta })
+    });
+    const txt = await r.text(); let data: any = {};
+    try { data = txt ? JSON.parse(txt) : {}; }
+    catch { throw new Error(`建立分發失敗（HTTP ${r.status}）: ${txt.slice(0, 200)}`); }
+    if (!r.ok || !data?.ok) throw new Error(data?.error || data?.detail || `建立分發失敗（HTTP ${r.status}）`);
+    // 成功：關閉 modal 並刷新列表
+    $("modal").style.display = "none";
+    await loadList();
+  } catch (e) { err.textContent = e?.message || String(e); }
+});
+
+// /api/upload/init 取預簽名 URL → XHR PUT
+async function uploadFile(file, folder, barEl, setText){
+  setText("請求預簽名 URL…");
+  const init = await fetch("/api/upload/init", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      filename: file.name,
+      folder,
+      contentType: file.type || (folder==="android" ? "application/vnd.android.package-archive" : "application/octet-stream")
+    })
+  }).then(r => r.json());
+  if (!init?.uploadUrl || !init?.key) throw new Error("取得預簽名 URL 失敗");
+  setText("上傳中… 0%");
+  await xhrPut(init.uploadUrl, file, init.contentType, (pct) => {
+    barEl.style.width = pct + "%";
+    setText("上傳中… " + pct + "%");
+  });
+  setText("完成");
+  return init.key;
+}
+function xhrPut(url, file, contentType, onProgress){
+  return new Promise((resolve, reject)=>{
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url, true);
+    if (contentType) xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (e)=>{ if (e.lengthComputable && onProgress) onProgress(Math.round(e.loaded*100/e.total)); };
+    xhr.onload = ()=>{ (xhr.status>=200 && xhr.status<300) ? resolve(null) : reject(new Error("HTTP "+xhr.status+" "+xhr.responseText)); };
+    xhr.onerror = ()=> reject(new Error("Network error"));
+    xhr.send(file);
+  });
 }
 </script>
