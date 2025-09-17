@@ -6,77 +6,60 @@ import { verifySession, Env as AuthEnv } from "../_lib/auth";
 
 interface Env extends AuthEnv {
   LINKS?: KVNamespace;       // 有些專案用 LINKS
-  FILES?: KVNamespace;       // 你現有專案多半是 FILES
+  // FILES?: KVNamespace;       // 你現有專案多半是 FILES
   STATS?: KVNamespace;       // 可選：獨立統計命名空間
 
-  R2?: R2Bucket;             // R2 綁定可能叫 R2
+  // R2?: R2Bucket;             // R2 綁定可能叫 R2
   FILES_BUCKET?: R2Bucket;   // 或叫 FILES_BUCKET
-  BUCKET?: R2Bucket;         // 或 BUCKET
+  // BUCKET?: R2Bucket;         // 或 BUCKET
   // 有時你會把完整 URL 存在 apk_key/ipa_key，這個名字用來去掉 /bucket-name/ 前綴
-  R2_BUCKET_NAME?: string;   // 可選，例：dist-files
+  // R2_BUCKET_NAME?: string;   // 可選，例：dist-files
 }
 
-const json = (data: any, status = 200) =>
-  new Response(JSON.stringify(data), {
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+    headers: { 'content-type': 'application/json' }
   });
+}
 
 export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   try {
-    const { user } = await verifySession(ctx);
-    if (!user?.id) return json({ error: "unauthorized" }, 401);
+    const { request, env } = ctx;
 
-    const body = await ctx.request.json().catch(() => ({}));
-    const code = String(body.code || "").trim();
-    if (!code) return json({ error: "bad_request" }, 400);
+    // 檢查登入
+    const cookies = readCookie(request);
+    const me = await verifySession(env, cookies);
+    if (!me?.ok) return json({ error: 'unauthorized' }, 401);
 
-    const KV = getLinksKV(ctx.env);
-    if (!KV) return json({ error: "misconfigured", detail: "KV binding LINKS/FILES not found" }, 500);
-
-    const key = `link:${code}`;
-    const raw = await KV.get(key);
-    if (!raw) return json({ ok: true }); // 已不存在，視為成功
-
-    const rec = JSON.parse(raw);
-
-    const isAdmin = !!(user.admin === true || user.role === "admin");
-    if (!isAdmin && rec.owner && rec.owner !== user.id) {
-      return json({ error: "forbidden" }, 403);
+    // 讀 body
+    const { code } = await request.json().catch(() => ({}));
+    if (!code || typeof code !== 'string') {
+      return json({ error: 'missing code' }, 400);
     }
 
-    // 先刪 R2 物件
-    const bucket = getR2Bucket(ctx.env);
-    if (bucket) {
-      await deleteR2IfExists(bucket, rec.apk_key, ctx.env.R2_BUCKET_NAME);
-      await deleteR2IfExists(bucket, rec.ipa_key, ctx.env.R2_BUCKET_NAME);
+    // 取出分發資料（要拿到檔案 key 才能刪 R2）
+    const link = await env.LINKS.get(code, { type: 'json' }) as
+      | { apk_key?: string; ipa_key?: string }
+      | null;
+
+    // 刪除 R2 檔案（存在才刪，失敗不影響主要流程）
+    if (link?.apk_key) {
+      try { await env.FILES_BUCKET.delete(link.apk_key); } catch { /* ignore */ }
+    }
+    if (link?.ipa_key) {
+      try { await env.FILES_BUCKET.delete(link.ipa_key); } catch { /* ignore */ }
     }
 
-    // 刪 KV 主紀錄
-    await KV.delete(key);
-
-    // 清掉相關統計/快取鍵（依你的設計調整前綴）
-    await deleteByPrefix(KV, `cnt:${code}:`);
-    await deleteByPrefix(KV, `stats:${code}:`);
-    await deleteByPrefix(KV, `hits:${code}:`);
-    await deleteByPrefix(KV, `manifest:${code}:`);
-    await KV.delete(`stats:${code}`); // 若有總表鍵
-
-    // 若統計在獨立 STATS，也清掉
-    if (ctx.env.STATS) {
-      await deleteByPrefix(ctx.env.STATS, `${code}:`);
-      await deleteByPrefix(ctx.env.STATS, `stats:${code}:`);
-      await ctx.env.STATS.delete(`stats:${code}`);
-    }
+    // 刪除 KV 的 link（以及如有 STATS 的話也一併刪）
+    await env.LINKS.delete(code).catch(() => {});
+    if (env.STATS) await env.STATS.delete(code).catch(() => {});
 
     return json({ ok: true });
   } catch (e: any) {
-    // 把詳細錯誤丟到 logs，回傳給前端也帶 detail 方便你排錯
-    console.error("delete link failed:", e);
-    return json({ error: "internal", detail: String(e?.message || e) }, 500);
+    return json({ error: e?.message || 'internal' }, 500);
   }
 };
-
 // ---- helpers ----
 function getLinksKV(env: Env): KVNamespace | undefined {
   return env.LINKS || env.FILES;
