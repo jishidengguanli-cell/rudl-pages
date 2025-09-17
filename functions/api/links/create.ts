@@ -1,5 +1,5 @@
 // functions/api/links/create.ts
-import { readCookie, verifySession, type AuthEnv } from "../../_lib/auth";
+import { readCookie, verifySession, type AuthEnv } from "../_lib/auth";
 
 type Lang = "zh-TW" | "zh-CN" | "en" | "ru" | "vi";
 
