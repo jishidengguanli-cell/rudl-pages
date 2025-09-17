@@ -1,5 +1,5 @@
 // functions/api/points/deduct.js
-import { getUid } from '../../../_utils.js';
+import { getUid } from '../../_utils.js';
 
 const COST = { android: 3, ios: 5 };
 

@@ -1,5 +1,5 @@
 // functions/api/orders.js
-import { getUid } from '../../_utils.js';
+import { getUid } from '../_utils.js';
 
 const PLAN_MAP = {
   p100:   { points: 100,   priceCents: 1000   },
