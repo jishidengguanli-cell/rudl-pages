@@ -1,48 +1,78 @@
 // functions/api/links/list.ts
-import { verifySession, type Env as AuthEnv } from "../_lib/auth";
+import { readCookie, verifySession, Env as AuthEnv } from "../_lib/auth";
 
-type KV = KVNamespace;
-
-interface Env extends AuthEnv {
-  LINKS: KV;   // rudl-links
+export interface Env extends AuthEnv {
+  LINKS: KVNamespace;
 }
 
-function json(status: number, data: any) {
-  return new Response(JSON.stringify(data), {
+function j(obj: any, status = 200) {
+  return new Response(JSON.stringify(obj), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+    },
   });
 }
 
-export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
-  // 1) 驗證登入
-  const sess = await verifySession(env, request);
-  if (!sess?.userId) return json(401, { error: "unauthorized" });
-  const userId = String(sess.userId);
+export const onRequestGet: PagesFunction<Env> = async (ctx) => {
+  try {
+    const sid = readCookie(ctx.request, "sid");
+    const me = sid ? await verifySession(ctx.env.SESSION_SECRET, sid) : null;
+    if (!me) return j({ error: "unauthorized" }, 401);
 
-  // 2) 全域以 link: 為前綴列出，再過濾 owner
-  const { keys } = await env.LINKS.list({ prefix: "link:" });
-  const items: any[] = [];
+    const LINKS = ctx.env.LINKS;
+    const todayKey = new Date().toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD
 
-  // 依序取值（資料量通常不大；之後要最佳化再做 batch）
-  for (const k of keys) {
-    const s = await env.LINKS.get(k.name, "text");
-    if (!s) continue;
-    try {
-      const obj = JSON.parse(s);
-      if (obj?.owner !== userId) continue;
+    // 讀取此使用者所有短碼
+    const listKey = `user:${me.uid}:codes`;
+    const raw = (await LINKS.get(listKey)) || "";
+    const codes = raw.split("\n").filter(Boolean);
 
-      // 防呆：保證 lang 存在（預設 en）
-      if (!obj.lang) obj.lang = "en";
+    const items: any[] = [];
+    for (const code of codes) {
+      const v = await LINKS.get(`link:${code}`);
+      if (!v) continue;
 
-      items.push(obj);
-    } catch {
-      // skip 壞資料
+      let rec: any;
+      try { rec = JSON.parse(v); } catch { continue; }
+
+      // 讀統計（整體 + 今日；另附上按平台的統計，未來要用得到）
+      const [
+        totalAll,
+        todayAll,
+        totalApk, totalIpa,
+        todayApk, todayIpa,
+      ] = await Promise.all([
+        LINKS.get(`cnt:${code}:total`),
+        LINKS.get(`cnt:${code}:day:${todayKey}`),
+        LINKS.get(`cnt:${code}:apk:total`),
+        LINKS.get(`cnt:${code}:ipa:total`),
+        LINKS.get(`cnt:${code}:apk:day:${todayKey}`),
+        LINKS.get(`cnt:${code}:ipa:day:${todayKey}`),
+      ]);
+
+      rec.stats = {
+        total: n(totalAll),
+        today: n(todayAll),
+        apk_total: n(totalApk),
+        ipa_total: n(totalIpa),
+        apk_today: n(todayApk),
+        ipa_today: n(todayIpa),
+      };
+
+      items.push(rec);
     }
+
+    // 依建立時間排序（新到舊）
+    items.sort((a, b) => (b?.createdAt || 0) - (a?.createdAt || 0));
+
+    return j({ items });
+  } catch (e: any) {
+    return j({ error: "internal", detail: String(e?.message || e) }, 500);
   }
-
-  // 3) 建立時間新到舊
-  items.sort((a, b) => (b?.createdAt || 0) - (a?.createdAt || 0));
-
-  return json(200, { items });
 };
+
+function n(v?: string | null) {
+  return Number.parseInt(v || "0", 10) || 0;
+}
