@@ -29,10 +29,14 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 
   // ---- i18n ----
   const url = new URL(ctx.request.url);
-  const qlang = normLang(url.searchParams.get("lang"));
-  const baseLang = normLang(rec.lang || "");
-  const reqLang  = pickBestLang(qlang || baseLang, ctx.request.headers.get("accept-language"));
-  const t = (k: string) => (LOCALES[reqLang][k] || LOCALES["zh-TW"][k] || k);
+  const pageLang =
+  url.searchParams.get("lang") ||
+  (item && typeof item.lang === "string" && item.lang) ||
+  "en";
+  // const qlang = normLang(url.searchParams.get("lang"));
+  // const baseLang = normLang(rec.lang || "");
+  // const reqLang  = pickBestLang(qlang || baseLang, ctx.request.headers.get("accept-language"));
+  // const t = (k: string) => (LOCALES[reqLang][k] || LOCALES["zh-TW"][k] || k);
 
   const title   = rec.title || "App";
   const verDisp = rec.version ?? "";
