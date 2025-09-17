@@ -1,86 +1,132 @@
 // functions/api/links/create.ts
-import { readCookie, verifySession, type Env as AuthEnv } from "../_lib/auth";
+export interface Env {
+  LINKS: KVNamespace;
+}
 
-type Env = AuthEnv & { LINKS: KVNamespace };
+type CreateBody = {
+  title?: string;
+  version?: string;
+  bundle_id?: string;
+  lang?: string;       // 預設語系
+  apkKey?: string;
+  ipaKey?: string;
+  ipaMeta?: { bundle_id?: string; version?: string } | null;
+};
 
-const J = (d: any, s = 200) =>
-  new Response(JSON.stringify(d), {
-    status: s,
-    headers: { "content-type": "application/json; charset=utf-8" },
+const ALLOWED_LANGS = ["en", "zh-TW", "zh-CN", "ru", "vi"];
+
+function json(data: any, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" }
   });
-
-function normLang(v: unknown) {
-  const x = String(v || "").trim();
-  if (["en", "zh-TW", "zh-CN", "ru", "vi"].includes(x)) return x;
-  const k = x.toLowerCase();
-  if (k === "zh-tw") return "zh-TW";
-  if (k === "zh-cn") return "zh-CN";
-  return "en";
 }
 
-async function genCode(LINKS: KVNamespace) {
+function randCode(len = 4) {
+  const chars =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let s = "";
+  for (let i = 0; i < len; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+async function genUniqueCode(kv: KVNamespace): Promise<string> {
   for (let i = 0; i < 8; i++) {
-    const code = Math.random().toString(36).slice(2, 6);
-    if (!(await LINKS.get(code))) return code;
+    const c = randCode(4);
+    const hit = await kv.get(c);
+    if (!hit) return c;
   }
-  throw new Error("code collision");
+  // 極小機率撞碼很多次就拉長
+  for (let i = 0; i < 8; i++) {
+    const c = randCode(5);
+    const hit = await kv.get(c);
+    if (!hit) return c;
+  }
+  throw new Error("failed to generate unique short code");
 }
 
-export const onRequest: PagesFunction<Env> = async (ctx) => {
-  const { request, env } = ctx;
-
-  // 僅允許 POST
-  if (request.method !== "POST") {
-    return new Response("Method Not Allowed", {
-      status: 405,
-      headers: { "allow": "POST", "content-type": "text/plain; charset=utf-8" },
-    });
-  }
-
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   try {
-    // 驗證
-    const sid = readCookie(request.headers.get("cookie") || "", "sid");
-    const me = await verifySession(sid, env).catch(() => null);
-    if (!me) return J({ error: "unauthorized" }, 401);
-
-    // 讀 body
-    let b: any = {};
-    try {
-      b = await request.json();
-    } catch {
-      return J({ error: "bad_request", detail: "invalid json body" }, 400);
+    if (!env.LINKS) {
+      // 綁定不存在也會造成 .get is not a function / undefined.get
+      throw new Error("KV binding LINKS is missing");
     }
 
-    const title     = String(b.title || "");
-    const version   = String(b.version || "");
-    const bundle_id = String(b.bundle_id || "");
-    const apkKey    = String(b.apkKey || "");
-    const ipaKey    = String(b.ipaKey || "");
-    const ipaMeta   = (b.ipaMeta && typeof b.ipaMeta === "object") ? b.ipaMeta : null;
-    const lang      = normLang(b.lang);
+    // 兼容 JSON 與 form-data
+    const ct = request.headers.get("content-type") || "";
+    let body: CreateBody = {};
 
-    const code = await genCode(env.LINKS);
+    if (ct.includes("application/json")) {
+      const raw = await request.json().catch(() => ({}));
+      body = (raw || {}) as CreateBody;
+    } else if (ct.includes("multipart/form-data")) {
+      const form = await request.formData();
+      body = {
+        title: form.get("title")?.toString() || "",
+        version: form.get("version")?.toString() || "",
+        bundle_id: form.get("bundle_id")?.toString() || "",
+        lang: form.get("lang")?.toString() || undefined,
+        apkKey: form.get("apkKey")?.toString() || "",
+        ipaKey: form.get("ipaKey")?.toString() || "",
+        // 如果前端用 form，ipaMeta 可不傳；解析放前端做了
+      };
+    } else {
+      // 其他 content-type，一律當 JSON 嘗試
+      const raw = await request.json().catch(() => ({}));
+      body = (raw || {}) as CreateBody;
+    }
 
+    // 取出欄位 + 預設值
+    let {
+      title = "",
+      version = "",
+      bundle_id = "",
+      lang = "en",
+      apkKey = "",
+      ipaKey = "",
+      ipaMeta = null
+    } = body;
+
+    // 語系白名單
+    if (!ALLOWED_LANGS.includes(lang)) lang = "en";
+
+    // 下載頁顯示欄位：若有 ipaMeta 就覆寫顯示
+    const displayBundle = (ipaMeta?.bundle_id || bundle_id || "").trim();
+    const displayVersion = (ipaMeta?.version || version || "").trim();
+
+    if (!apkKey && !ipaKey) {
+      return json({ error: "bad_request", detail: "apkKey 或 ipaKey 至少要有一個" }, 400);
+    }
+
+    // 產生唯一短碼
+    const code = await genUniqueCode(env.LINKS);
+    const now = Date.now();
+
+    // 寫 KV（你原本 list 用到的欄位可照舊保留/擴充）
     const rec = {
       id: code,
       code,
-      owner: me.sub || me.id || me.email || "",
-      title,
-      version: version || ipaMeta?.version || "",
-      bundle_id: bundle_id || ipaMeta?.bundle_id || "",
-      apk_key:  apkKey || null,
-      ipa_key:  ipaKey || null,
-      lang,                                   // 預覽語系
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      stats: { today: 0, total: 0, apk_today: 0, apk_total: 0, ipa_today: 0, ipa_total: 0 },
+      title: title.trim(),
+      version: displayVersion,
+      bundle_id: displayBundle,
+      lang,                // <-- 下載頁預設語系
+      apk_key: apkKey || null,
+      ipa_key: ipaKey || null,
+      createdAt: now,
+      updatedAt: now,
+      // 初始統計
+      d_today_apk: 0,
+      d_today_ios: 0,
+      d_total_apk: 0,
+      d_total_ios: 0
     };
 
     await env.LINKS.put(code, JSON.stringify(rec));
-    return J({ ok: true, code });
+
+    return json({ ok: true, code });
   } catch (e: any) {
-    // 把錯誤印出來，並回 JSON，避免前端拿到 HTML
-    console.error("create link failed:", e?.stack || e);
-    return J({ error: "internal", detail: String(e?.message || e) }, 500);
+    // 把錯誤寫到日誌，方便在 Cloudflare Pages → Deployments → View details → Functions logs 看到
+    console.error("links/create error:", e);
+    return json({ error: "internal", detail: e?.message || String(e) }, 500);
   }
 };
