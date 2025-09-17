@@ -1,72 +1,83 @@
 // functions/api/links/delete.ts
-// 刪除分發：刪 KV 主紀錄 + 統計鍵 + R2 APK/IPA 物件
-
-// ⬇⬇⬇ 這行路徑請照你專案其它 API 的寫法（../_lib/auth 或 ../../_lib/auth）
-import { verifySession, Env as AuthEnv } from "../_lib/auth";
+import { readCookie, verifySession, Env as AuthEnv } from "../_lib/auth";
 
 interface Env extends AuthEnv {
-  LINKS?: KVNamespace;       // 有些專案用 LINKS
-  // FILES?: KVNamespace;       // 你現有專案多半是 FILES
-  STATS?: KVNamespace;       // 可選：獨立統計命名空間
-
-  // R2?: R2Bucket;             // R2 綁定可能叫 R2
-  FILES_BUCKET?: R2Bucket;   // 或叫 FILES_BUCKET
-  // BUCKET?: R2Bucket;         // 或 BUCKET
-  // 有時你會把完整 URL 存在 apk_key/ipa_key，這個名字用來去掉 /bucket-name/ 前綴
-  // R2_BUCKET_NAME?: string;   // 可選，例：dist-files
+  LINKS: KVNamespace;            // 你的列表/統計都在 LINKS（或 FILES），這裡用 LINKS
+  FILES_BUCKET?: R2Bucket;       // R2 綁定（從專案 Settings > Bindings 看到叫什麼就用什麼）
+  R2_BUCKET_NAME?: string;       // 可選：你的 bucket 名稱，例如 "dist-files"
+  ADMIN_EMAILS?: string;         // 管理員名單（逗號/空白分隔）
 }
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
+const json = (b: unknown, status = 200) =>
+  new Response(JSON.stringify(b), {
     status,
-    headers: { 'content-type': 'application/json' }
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
-}
 
 export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   try {
-    const { request, env } = ctx;
+    // --- 驗證登入 ---
+    const sid = readCookie(ctx.request, "sid");
+    const me  = sid ? await verifySession(ctx.env.SESSION_SECRET, sid) : null;
+    if (!me) return json({ error: "unauthorized" }, 401);
 
-    // 檢查登入
-    const cookies = readCookie(request);
-    const me = await verifySession(env, cookies);
-    if (!me?.ok) return json({ error: 'unauthorized' }, 401);
+    // --- 讀取 body ---
+    const body = await ctx.request.json<any>().catch(() => ({}));
+    const code = String(body.code || "").trim();
+    if (!code) return json({ error: "code required" }, 400);
 
-    // 讀 body
-    const { code } = await request.json().catch(() => ({}));
-    if (!code || typeof code !== 'string') {
-      return json({ error: 'missing code' }, 400);
+    // --- 取主紀錄並驗權 ---
+    const key = `link:${code}`;
+    const raw = await ctx.env.LINKS.get(key);
+    if (!raw) return json({ ok: true }); // 已經不存在就當作成功
+    const rec = JSON.parse(raw) as {
+      owner?: string;
+      apk_key?: string;
+      ipa_key?: string;
+      title?: string;
+    };
+
+    const adminEmails = (ctx.env.ADMIN_EMAILS || "")
+      .toLowerCase()
+      .split(/[,;\s]+/)
+      .filter(Boolean);
+    const isAdmin = adminEmails.includes(String(me.email || "").toLowerCase());
+    if (rec.owner && rec.owner !== me.uid && !isAdmin) {
+      return json({ error: "forbidden" }, 403);
     }
 
-    // 取出分發資料（要拿到檔案 key 才能刪 R2）
-    const link = await env.LINKS.get(code, { type: 'json' }) as
-      | { apk_key?: string; ipa_key?: string }
-      | null;
-
-    // 刪除 R2 檔案（存在才刪，失敗不影響主要流程）
-    if (link?.apk_key) {
-      try { await env.FILES_BUCKET.delete(link.apk_key); } catch { /* ignore */ }
-    }
-    if (link?.ipa_key) {
-      try { await env.FILES_BUCKET.delete(link.ipa_key); } catch { /* ignore */ }
+    // --- 刪 R2 物件（如果有）---
+    const bucket = ctx.env.FILES_BUCKET;
+    if (bucket) {
+      await deleteR2IfExists(bucket, rec.apk_key, ctx.env.R2_BUCKET_NAME);
+      await deleteR2IfExists(bucket, rec.ipa_key, ctx.env.R2_BUCKET_NAME);
     }
 
-    // 刪除 KV 的 link（以及如有 STATS 的話也一併刪）
-    await env.LINKS.delete(code).catch(() => {});
-    if (env.STATS) await env.STATS.delete(code).catch(() => {});
+    // --- 從使用者清單移除該 code ---
+    if (me.uid) {
+      const listKey = `user:${me.uid}:codes`;
+      const existing = (await ctx.env.LINKS.get(listKey)) || "";
+      const lines = existing.split("\n").filter(Boolean).filter(c => c !== code);
+      await ctx.env.LINKS.put(listKey, lines.join("\n"));
+    }
+
+    // --- 刪主紀錄 ---
+    await ctx.env.LINKS.delete(key);
+
+    // --- 刪統計/快取鍵（依你專案實際前綴調整）---
+    await deleteByPrefix(ctx.env.LINKS, `cnt:${code}:`);
+    await deleteByPrefix(ctx.env.LINKS, `stats:${code}:`);
+    await deleteByPrefix(ctx.env.LINKS, `hits:${code}:`);
+    await ctx.env.LINKS.delete(`stats:${code}`).catch(() => {});
 
     return json({ ok: true });
   } catch (e: any) {
-    return json({ error: e?.message || 'internal' }, 500);
+    console.error("delete link failed:", e);
+    return json({ error: "internal", detail: String(e?.message || e) }, 500);
   }
 };
-// ---- helpers ----
-function getLinksKV(env: Env): KVNamespace | undefined {
-  return env.LINKS || env.FILES;
-}
-function getR2Bucket(env: Env): R2Bucket | undefined {
-  return env.R2 || env.FILES_BUCKET || (env as any).FILES || env.BUCKET;
-}
+
+// ---------- helpers ----------
 async function deleteByPrefix(ns: KVNamespace, prefix: string) {
   let cursor: string | undefined;
   do {
@@ -75,15 +86,19 @@ async function deleteByPrefix(ns: KVNamespace, prefix: string) {
     cursor = res.cursor;
   } while (cursor);
 }
+
 async function deleteR2IfExists(bucket: R2Bucket, rawKey?: string, bucketName?: string) {
   const key = toObjectKey(rawKey, bucketName);
   if (!key) return;
-  try { await bucket.delete(key); } catch (e) { console.warn("R2 delete warn:", rawKey, e); }
+  try { await bucket.delete(key); } catch { /* ignore single delete error */ }
 }
+
 function toObjectKey(v?: string, bucketName?: string): string | undefined {
   if (!v) return;
   let s = String(v).trim();
   if (!s) return;
+
+  // 支援完整 URL / r2.cloudflarestorage.com / 含 bucket 前綴的 key
   s = s.replace(/^\/+/, "");
   if (s.includes("://")) {
     try {
@@ -91,7 +106,7 @@ function toObjectKey(v?: string, bucketName?: string): string | undefined {
       let p = u.pathname.replace(/^\/+/, "");
       const seg = p.split("/").filter(Boolean);
       if (/r2\.cloudflarestorage\.com$/i.test(u.hostname) && seg.length >= 3) {
-        p = seg.slice(2).join("/");
+        p = seg.slice(2).join("/");              // 去掉 /<account>/<bucket>/
       } else if (bucketName && p.startsWith(bucketName + "/")) {
         p = p.slice(bucketName.length + 1);
       }
