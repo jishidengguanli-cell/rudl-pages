@@ -1,115 +1,100 @@
 // functions/api/links/create.ts
-import { readCookie, verifySession, type AuthEnv } from "../_lib/auth";
+import { verifySession, type Env as AuthEnv } from "../_lib/auth";
 
-type Lang = "en" | "zh-TW" | "zh-CN" | "ru" | "vi";
+type KV = KVNamespace;
 
-export interface Env extends AuthEnv {
-  LINKS: KVNamespace;      // rudl-links
+interface Env extends AuthEnv {
+  LINKS: KV;        // rudl-links
 }
 
-// 小工具：標準 JSON 回應
 function json(status: number, data: any) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: { "content-type": "application/json" },
   });
 }
 
-// 產生 4 碼短碼，並確保 KV 中沒有同名的 link:<code>
-async function genCode(linksKV: KVNamespace): Promise<string> {
-  const abc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  while (true) {
-    let c = "";
-    for (let i = 0; i < 4; i++) c += abc[(Math.random() * abc.length) | 0];
-    const exists = await linksKV.get(`link:${c}`);
-    if (!exists) return c;
-  }
+function pickStr(v: any, def = ""): string {
+  return typeof v === "string" ? v : def;
 }
 
-export const onRequestPost: PagesFunction<Env> = async (ctx) => {
+export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+  // 1) 驗證登入
+  const sess = await verifySession(env, request);
+  if (!sess?.userId) return json(401, { error: "unauthorized" });
+  const owner = String(sess.userId);
+
+  // 2) 讀取 body
+  let body: any;
   try {
-    const { request, env } = ctx;
-
-    // ---- 防呆：Bindings 檢查 ----
-    const linksKV: KVNamespace | undefined =
-      (env as any).LINKS || (env as any).links;
-    if (!linksKV || typeof (linksKV as any).get !== "function") {
-      return json(500, { error: "config", detail: "KV binding LINKS missing" });
-    }
-    const usersKV: KVNamespace | undefined =
-      (env as any).USERS || (env as any).users;
-    if (!usersKV || typeof (usersKV as any).get !== "function") {
-      return json(500, { error: "config", detail: "KV binding USERS missing" });
-    }
-
-    // ---- 驗證登入 ----
-    const cookie = request.headers.get("cookie") || "";
-    const sid = readCookie(cookie, "sid");
-    const sess = await verifySession(env, sid).catch(() => null);
-    if (!sess) return json(401, { error: "unauthorized" });
-
-    // ---- 解析 body ----
-    const body = await request.json().catch(() => null) as {
-      title?: string;
-      version?: string;         // 顯示用
-      bundle_id?: string;       // 顯示用
-      lang?: string;            // 預覽語系
-      apkKey?: string;          // R2 key
-      ipaKey?: string;          // R2 key
-      ipaMeta?: { bundle_id?: string; version?: string };
-    };
-    if (!body) return json(400, { error: "bad_request" });
-
-    // 語系：預設英文
-    let lang: Lang = "en";
-    const rawLang = (body.lang || "").trim();
-    if (["en", "zh-TW", "zh-CN", "ru", "vi"].includes(rawLang)) {
-      lang = rawLang as Lang;
-    }
-
-    // ---- 產生唯一短碼 ----
-    const code = await genCode(linksKV);
-
-    // ---- 組裝 link 物件（顯示欄位 + 檔案 key + 語系 + 統計欄位）----
-    const link = {
-      id: code,
-      code,
-      owner: sess.user.id,
-      title: body.title?.trim() || "",
-      version: body.version?.trim() || "",
-      bundle_id: body.bundle_id?.trim() || "",
-      lang,
-      apk_key: body.apkKey || "",
-      ipa_key: body.ipaKey || "",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      today_apk: 0,
-      today_ipa: 0,
-      total_apk: 0,
-      total_ipa: 0,
-    };
-
-    // 若前端有帶 IPA 解析結果、而顯示欄位為空，就用解析值補上
-    if (body.ipaMeta) {
-      if (!link.bundle_id && body.ipaMeta.bundle_id) link.bundle_id = body.ipaMeta.bundle_id;
-      if (!link.version   && body.ipaMeta.version)   link.version   = body.ipaMeta.version;
-    }
-
-    // ---- 寫入主資料（一定要有 link: 前綴）----
-    await linksKV.put(`link:${code}`, JSON.stringify(link));
-
-    // ---- 更新使用者索引（列表會用到）----
-    const idxKey = `user:${sess.user.id}`;
-    const oldIdx = (await linksKV.get(idxKey)) || "";
-    const nextIdx = oldIdx ? `${code} ${oldIdx}` : code;
-    await linksKV.put(idxKey, nextIdx);
-
-    return json(200, { ok: true, code, url: `/d/${code}`, lang });
-  } catch (e: any) {
-    // 統一回丟可讀的錯誤（避免「Internal」看不到原因）
-    return json(500, {
-      error: "internal",
-      detail: e?.message || String(e),
-    });
+    body = await request.json();
+  } catch {
+    return json(400, { error: "bad_json" });
   }
+
+  // 3) 取用欄位（顯示用 + 檔案 key + ipaMeta + 語系）
+  const title      = pickStr(body.title);
+  const version    = pickStr(body.version);
+  const bundleIdUi = pickStr(body.bundle_id);
+  const lang       = pickStr(body.lang, "en");    // 預覽語系，預設 en
+
+  const apkKey = pickStr(body.apkKey);
+  const ipaKey = pickStr(body.ipaKey);
+  const ipaMeta = (body?.ipaMeta && typeof body.ipaMeta === "object") ? body.ipaMeta : null as null | { bundle_id?: string; version?: string };
+
+  // 4) 產生唯一短碼（固定以 link: 前綴寫入）
+  const code = await allocCode(env.LINKS);
+  const now = Date.now();
+
+  // 5) 整理要寫入 KV 的紀錄
+  const record: any = {
+    id: code,
+    code,
+    owner,                // 用來過濾自己的清單
+    title,
+    version,
+    bundle_id: bundleIdUi,
+    lang,
+    apk_key: apkKey,
+    ipa_key: ipaKey,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // 若 ipaMeta 有值但顯示欄位為空，補上顯示用資訊；不覆蓋使用者已輸入者
+  if (ipaMeta) {
+    if (!record.bundle_id && ipaMeta.bundle_id) record.bundle_id = String(ipaMeta.bundle_id);
+    // 另外留一份 ios 欄位，僅供你之後想用
+    record.ios = {
+      bundle_id: pickStr(ipaMeta.bundle_id),
+      version:   pickStr(ipaMeta.version),
+    };
+  }
+
+  // 6) 寫入 KV（一定用 link:${code}）
+  await env.LINKS.put(`link:${code}`, JSON.stringify(record));
+
+  return json(200, { ok: true, code });
 };
+
+// 產生唯一短碼（4 碼 base62，不夠再延長）
+async function allocCode(kv: KV): Promise<string> {
+  const CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  async function tryLen(n: number): Promise<string> {
+    for (let t = 0; t < 60; t++) {
+      let s = "";
+      // 用 crypto 取得較均勻亂數
+      const buf = new Uint32Array(n);
+      crypto.getRandomValues(buf);
+      for (let i = 0; i < n; i++) s += CHARS[buf[i] % CHARS.length];
+      const exists = await kv.get(`link:${s}`);
+      if (!exists) return s;
+    }
+    return "";
+  }
+  let code = await tryLen(4);
+  if (code) return code;
+  code = await tryLen(5);
+  if (code) return code;
+  return await tryLen(6);
+}
