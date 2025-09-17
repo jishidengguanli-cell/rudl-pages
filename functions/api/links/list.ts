@@ -1,5 +1,5 @@
 // functions/api/links/list.ts
-import { verifySession, type Env as AuthEnv } from "../../_lib/auth";
+import { verifySession, type Env as AuthEnv } from "../_lib/auth";
 
 type KV = KVNamespace;
 
