@@ -79,6 +79,9 @@
     async function loadBalance() {
       const { points } = await getJSON('/api/me/points');
       elBal.textContent = points;
+      // 廣播：同分頁事件 + 跨分頁 storage 事件
+      window.dispatchEvent(new Event('points:updated'));
+      localStorage.setItem('points:updated', String(Date.now()));
     }
 
     async function buy(planId) {

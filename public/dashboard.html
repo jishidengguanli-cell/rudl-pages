@@ -59,6 +59,15 @@
     display:flex; align-items:center; justify-content:space-between; gap:12px;
     padding:0 16px 8px;
   }
+  .points-badge{
+    margin-left:8px;
+    padding:2px 10px;
+    border:1px solid #ddd;
+    border-radius:999px;
+    font-size:12px;
+    line-height:20px;
+    display:inline-block;
+  }
   #list-panel #me,
   #list-panel #empty{ padding:0 16px; }
   
@@ -134,6 +143,7 @@
       <h2>分發列表</h2>
       <div id="me" class="muted">讀取中…</div>
       <div class="right-ctrls">
+        <span id="points-badge" class="points-badge">-- pts</span>
         <a class="btn" id="btn-topup" href="/recharge.html">充值</a>
         <button class="btn" id="btn-new">＋ 新增分發</button>
       </div>
@@ -267,6 +277,7 @@
   </div>
 </div>
 
+<script src="/js/points-badge.js"></script>
 <script>
 let itemsByCode = {};        // 供編輯彈窗帶入資料
 let currentEditCode = null;  // 目前在編輯哪一筆
