@@ -33,69 +33,89 @@
     <div class="stack">
       <button id="dl-android">Download Android (-3 pts)</button>
       <button id="dl-ios">Download iOS (-5 pts)</button>
-      <button id="reset">Reset Balance</button>
+      <button id="refresh">Refresh</button>
     </div>
 
     <p class="notice">
       Downloads cost 3 pts (Android) and 5 pts (iOS). You can recharge any time.
     </p>
-    <p>
-      Currently only accepts virtual currency payments, e-wallet addresses:
-    </p>
   </div>
 
   <script>
-    // --- demo plans (英文) ---
-    const plans = [
-      { name: 'Starter 100', points: 100, price: 10 },
-      { name: 'Value 500', points: 500, price: 45 },
-      { name: 'Pro 2000', points: 2000, price: 150 },
-      { name: 'Business 5000', points: 5000, price: 400 },
-      { name: 'Enterprise 15000', points: 15000, price: 1100 },
-    ];
+    // --- 確保每個瀏覽器有一個 uid（存在 cookie） ---
+    (function ensureUid(){
+      if (document.cookie.split('; ').some(v => v.startsWith('uid='))) return;
+      const uid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+      document.cookie = `uid=${encodeURIComponent(uid)}; Path=/; Max-Age=${60*60*24*365}; SameSite=Lax`;
+    })();
 
-    const LS_KEY = 'demo_points';
-    const COST = { android: 3, ios: 5 };
+    const elBal = document.querySelector('#balance');
+    const elPlans = document.querySelector('#plans');
 
-    function getPts() { return parseInt(localStorage.getItem(LS_KEY) || '0', 10); }
-    function setPts(v) { localStorage.setItem(LS_KEY, String(v)); draw(); }
-    function addPts(delta){ setPts(getPts() + delta); }
-    function deductPts(delta){
-      const cur = getPts();
-      if (cur < delta) { alert('Insufficient points'); return; }
-      setPts(cur - delta);
+    async function getJSON(url, opts) {
+      const r = await fetch(url, opts);
+      const j = await r.json().catch(()=>({}));
+      if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), {status: r.status, data: j});
+      return j;
     }
 
-    function draw() {
-      document.querySelector('#balance').textContent = getPts();
-    }
-
-    function renderPlans(){
-      const host = document.querySelector('#plans');
-      host.innerHTML = '';
-      plans.forEach(p => {
+    async function loadPlans() {
+      const { plans } = await getJSON('/api/plans');
+      elPlans.innerHTML = '';
+      for (const p of plans) {
         const el = document.createElement('div');
         el.className = 'card';
         el.innerHTML = `
           <div class="title" style="font-weight:600">${p.name}</div>
-          <div class="price">$${p.price} <span class="muted">/ one-time</span></div>
+          <div class="price">$${(p.priceCents/100).toFixed(0)} <span class="muted">/ one-time</span></div>
           <div class="muted">Includes ${p.points} points</div>
-          <div style="margin-top:12px">
-            <button>Buy now</button>
-          </div>
+          <div style="margin-top:12px"><button>Buy now</button></div>
         `;
-        el.querySelector('button').addEventListener('click', () => addPts(p.points));
-        host.appendChild(el);
-      });
+        el.querySelector('button').addEventListener('click', () => buy(p.id));
+        elPlans.appendChild(el);
+      }
     }
 
-    // events
-    document.addEventListener('DOMContentLoaded', () => {
-      renderPlans(); draw();
-      document.getElementById('dl-android').onclick = () => deductPts(COST.android);
-      document.getElementById('dl-ios').onclick = () => deductPts(COST.ios);
-      document.getElementById('reset').onclick = () => setPts(0);
-    });
+    async function loadBalance() {
+      const { points } = await getJSON('/api/me/points');
+      elBal.textContent = points;
+    }
+
+    async function buy(planId) {
+      try {
+        const j = await getJSON('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ planId })
+        });
+        elBal.textContent = j.balance;
+      } catch (e) {
+        alert(e.message || 'Failed');
+      }
+    }
+
+    async function deduct(platform) {
+      try {
+        const j = await getJSON('/api/points/deduct', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform })
+        });
+        elBal.textContent = j.balance;
+      } catch (e) {
+        if (e.status === 402) alert('Insufficient points');
+        else alert(e.message || 'Failed');
+      }
+    }
+
+    document.getElementById('dl-android').onclick = () => deduct('android');
+    document.getElementById('dl-ios').onclick = () => deduct('ios');
+    document.getElementById('refresh').onclick = () => loadBalance();
+
+    // init
+    (async () => {
+      await Promise.all([loadPlans(), loadBalance()]);
+    })();
   </script>
 </body>
 </html>
