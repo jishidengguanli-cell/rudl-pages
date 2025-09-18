@@ -1,33 +1,40 @@
+// functions/api/auth/login.ts
 import { verifyPassword, signSession, setSessionCookie, Env } from "../_lib/auth";
 
-export const onRequestPost: PagesFunction<Env> = async (ctx) => {
-  const { USERS, SESSION_SECRET, SESSION_DAYS } = ctx.env;
-  const { email, password } = await ctx.request.json<any>().catch(() => ({}));
-  if (!email || !password) return json({ error: "email and password required" }, 400);
-  const em = String(email).trim().toLowerCase();
+type Body = { email?: string; password?: string };
 
-  const uid = await USERS.get(`email:${em}`);
-  if (!uid) return json({ error: "invalid credentials" }, 401);
-  const raw = await USERS.get(`user:${uid}`);
-  if (!raw) return json({ error: "invalid credentials" }, 401);
-  const user = JSON.parse(raw);
+export async function onRequestPost({ request, env }: { request: Request; env: Env }) {
+  let body: Body = {};
+  try { body = await request.json(); } catch {}
 
-  const ok = await verifyPassword(String(password), user.pw);
-  if (!ok) return json({ error: "invalid credentials" }, 401);
+  const email = (body.email || "").trim().toLowerCase();
+  const password = body.password || "";
+  if (!email || !password) return json({ error: "MISSING_FIELDS" }, 400);
 
-  const days = Number(SESSION_DAYS || "7") || 7;
-  const exp = Math.floor(Date.now() / 1000) + days * 24 * 3600;
-  const token = await signSession(SESSION_SECRET, { uid, email: em, exp });
+  // 1) 由 email 找 uid
+  const uid = await env.USERS.get(`email:${email}`);
+  if (!uid) return json({ error: "INVALID_CREDENTIALS" }, 401);
 
-  return new Response(JSON.stringify({ id: uid, email: em }), {
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-      "set-cookie": setSessionCookie(token, days),
-    },
-  });
-};
+  // 2) 取出使用者資料
+  const raw = await env.USERS.get(`user:${uid}`);
+  if (!raw) return json({ error: "INVALID_CREDENTIALS" }, 401);
 
+  let user: { id: string; email: string; pw: string };
+  try { user = JSON.parse(raw); } catch { return json({ error: "BROKEN_USER" }, 500); }
+
+  // 3) 驗證密碼
+  const ok = await verifyPassword(password, user.pw);
+  if (!ok) return json({ error: "INVALID_CREDENTIALS" }, 401);
+
+  // 4) 簽發 session 並設 cookie
+  const token = await signSession(env.SESSION_SECRET, { uid: user.id, email: user.email }, env.SESSION_DAYS ?? 7);
+  const headers = new Headers({ "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  setSessionCookie(headers, token, env.SESSION_DAYS ?? 7);
+
+  return new Response(JSON.stringify({ ok: true, uid: user.id, email: user.email }), { headers });
+}
+
+/* utils */
 function json(obj: any, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,

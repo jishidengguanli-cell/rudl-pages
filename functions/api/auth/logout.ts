@@ -1,8 +1,7 @@
 import { clearSessionCookie, Env } from "../_lib/auth";
 
-export const onRequestPost: PagesFunction<Env> = async () => {
-  return new Response("", {
-    status: 204,
-    headers: { "set-cookie": clearSessionCookie(), "cache-control": "no-store" },
-  });
-};
+export async function onRequestPost({ env }: { env: Env }) {
+  const headers = new Headers();
+  clearSessionCookie(headers);
+  return new Response(null, { status: 204, headers });
+}

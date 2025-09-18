@@ -1,45 +1,41 @@
+// functions/api/auth/register.ts
 import { hashPassword, signSession, setSessionCookie, Env } from "../_lib/auth";
 
-export const onRequestPost: PagesFunction<Env> = async (ctx) => {
-  try {
-    const { USERS, SESSION_SECRET, SESSION_DAYS } = ctx.env;
-    if (!USERS) throw new Error("USERS binding missing");
-    if (!SESSION_SECRET) throw new Error("SESSION_SECRET missing");
+type Body = { email?: string; password?: string };
 
-    const { email, password } = await ctx.request.json<any>().catch(() => ({}));
-    if (!email || !password) return json({ error: "email and password required" }, 400);
+export async function onRequestPost({ request, env }: { request: Request; env: Env }) {
+  let body: Body = {};
+  try { body = await request.json(); } catch {}
 
-    const em = String(email).trim().toLowerCase();
-    if (!/^[^@]+@[^@]+\.[^@]+$/.test(em)) return json({ error: "invalid email" }, 400);
-    if (String(password).length < 8) return json({ error: "password too short" }, 400);
+  const email = (body.email || "").trim().toLowerCase();
+  const password = body.password || "";
+  if (!email || !password) return json({ error: "MISSING_FIELDS" }, 400);
 
-    const existingUid = await USERS.get(`email:${em}`);
-    if (existingUid) return json({ error: "email already registered" }, 409);
+  // 1) 檢查是否已存在
+  const exists = await env.USERS.get(`email:${email}`);
+  if (exists) return json({ error: "EMAIL_EXISTS" }, 409);
 
-    const uid = crypto.randomUUID();
-    const pwHash = await hashPassword(String(password));
+  // 2) 產生 uid + 雜湊密碼
+  const uid = crypto.randomUUID();
+  const pw = await hashPassword(password);
+  const record = { id: uid, email, pw, createdAt: Date.now() };
 
-    await USERS.put(`user:${uid}`, JSON.stringify({ id: uid, email: em, pw: pwHash, createdAt: Date.now() }));
-    await USERS.put(`email:${em}`, uid);
+  // 3) 寫入 KV
+  await env.USERS.put(`user:${uid}`, JSON.stringify(record));
+  await env.USERS.put(`email:${email}`, uid);
 
-    const days = Number(SESSION_DAYS || "7") || 7;
-    const exp = Math.floor(Date.now() / 1000) + days * 24 * 3600;
-    const token = await signSession(SESSION_SECRET, { uid, email: em, exp });
+  // 4) 簽發 session 並設 cookie
+  const token = await signSession(env.SESSION_SECRET, { uid, email }, env.SESSION_DAYS ?? 7);
+  const headers = new Headers({ "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  setSessionCookie(headers, token, env.SESSION_DAYS ?? 7);
 
-    return new Response(JSON.stringify({ id: uid, email: em }), {
-      status: 201,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "set-cookie": setSessionCookie(token, days),
-      },
-    });
-  } catch (e: any) {
-    return new Response(JSON.stringify({ error: "internal", detail: String(e?.message || e) }), {
-      status: 500,
-      headers: { "content-type": "application/json; charset=utf-8" },
-    });
-  }
-};
+  return new Response(JSON.stringify({ ok: true, uid, email }), { headers });
+}
+
+/* utils */
 function json(obj: any, status = 200) {
-  return new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json; charset=utf-8" } });
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
 }

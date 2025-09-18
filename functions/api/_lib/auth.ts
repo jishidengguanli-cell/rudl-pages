@@ -1,39 +1,72 @@
 /// <reference types="@cloudflare/workers-types" />
 
-/** Base64URL helpers **/
+/**
+ * Workers-friendly auth helpers（無 Node 型別）
+ * 提供：
+ *  - hashPassword / verifyPassword  (PBKDF2-SHA256)
+ *  - signSession / verifySession    (HMAC-SHA256)
+ *  - readCookie / setSessionCookie / clearSessionCookie
+ *  - Env 介面（其他檔案有 import）
+ */
+
+export interface Env {
+  USERS: KVNamespace;
+  SESSION_SECRET: string;
+  SESSION_DAYS?: number;
+}
+
+/* ---------- base64url ---------- */
 const te = new TextEncoder();
 const td = new TextDecoder();
 
+// 為了修掉 TS 對 BufferSource 的嚴格推斷，統一做強轉
+const BS = (v: unknown) => v as unknown as BufferSource;
+
 function b64urlFromBytes(bytes: Uint8Array): string {
-  let s = ""; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 function b64urlFromString(s: string): string { return b64urlFromBytes(te.encode(s)); }
 function bytesFromB64url(b64u: string): Uint8Array {
   const b64 = b64u.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64u.length + 3) % 4);
-  const bin = atob(b64); const out = new Uint8Array(bin.length);
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
 function stringFromB64url(b64u: string): string { return td.decode(bytesFromB64url(b64u)); }
 
-/** HMAC-SHA256 (JWT-like session) **/
+/* ---------- HMAC-SHA256 (JWT-like) ---------- */
 async function hmacSha256(secret: string, data: string): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey("raw", te.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("HMAC", key, te.encode(data));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    BS(te.encode(secret)),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, BS(te.encode(data)));
   return new Uint8Array(sig);
 }
+
 function timeSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false; let v = 0;
-  for (let i = 0; i < a.length; i++) v |= a[i] ^ b[i]; return v === 0;
+  if (a.length !== b.length) return false;
+  let v = 0; for (let i = 0; i < a.length; i++) v |= a[i] ^ b[i];
+  return v === 0;
 }
 
 export type SessionPayload = { uid: string; email?: string; exp: number };
 
-export async function signSession(secret: string, payload: { uid: string; email?: string }, days = 7): Promise<string> {
+export async function signSession(
+  secret: string,
+  payload: { uid: string; email?: string },
+  days = 7
+): Promise<string> {
   const header = { alg: "HS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
   const body: SessionPayload = { uid: payload.uid, email: payload.email, exp: now + days * 86400 };
+
   const h = b64urlFromString(JSON.stringify(header));
   const p = b64urlFromString(JSON.stringify(body));
   const data = `${h}.${p}`;
@@ -44,37 +77,85 @@ export async function signSession(secret: string, payload: { uid: string; email?
 export async function verifySession(secret: string, token?: string): Promise<SessionPayload | null> {
   if (!token) return null;
   const parts = token.split("."); if (parts.length !== 3) return null;
-  const [h, p, s] = parts; const data = `${h}.${p}`;
+  const [h, p, s] = parts;
+  const data = `${h}.${p}`;
   const expect = await hmacSha256(secret, data);
   const got = bytesFromB64url(s);
   if (!timeSafeEqual(expect, got)) return null;
-  let payload: SessionPayload; try { payload = JSON.parse(stringFromB64url(p)); } catch { return null; }
-  const now = Math.floor(Date.now() / 1000); if (!payload.exp || payload.exp < now) return null;
+
+  let payload: SessionPayload;
+  try { payload = JSON.parse(stringFromB64url(p)); } catch { return null; }
+  const now = Math.floor(Date.now() / 1000);
+  if (!payload.exp || payload.exp < now) return null;
   return payload;
 }
 
-/** Cookie helpers **/
+/* ---------- Cookie helpers ---------- */
 export function readCookie(req: Request, name: string): string | "" {
   const cookie = req.headers.get("cookie") || "";
   const m = cookie.match(new RegExp("(?:^|;\\s*)" + name.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&") + "=([^;]*)"));
   return m ? decodeURIComponent(m[1]) : "";
 }
 
-/** PBKDF2-SHA256 password hashing **/
-const SALT_BYTES = 16; const ITER = 120_000; const KEYLEN = 32;
+export function setSessionCookie(headers: Headers, token: string, days = 7) {
+  const maxAge = days * 86400;
+  headers.append(
+    "Set-Cookie",
+    `sid=${encodeURIComponent(token)}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax; Secure`
+  );
+}
+export function clearSessionCookie(headers: Headers) {
+  headers.append("Set-Cookie", "sid=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax; Secure");
+}
+
+/* ---------- PBKDF2-SHA256 ---------- */
+const SALT_BYTES = 16;
+const ITER = 120_000;
+const KEYLEN = 32;
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
-  const keyMaterial = await crypto.subtle.importKey("raw", te.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: ITER }, keyMaterial, KEYLEN * 8);
+
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    BS(te.encode(password)),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: BS(salt), iterations: ITER },
+    keyMaterial,
+    KEYLEN * 8
+  );
+
   const out = new Uint8Array(bits);
   return `pbkdf2$${ITER}$${b64urlFromBytes(salt)}$${b64urlFromBytes(out)}`;
 }
 
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const parts = stored.split("$"); if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
-  const iter = parseInt(parts[1], 10) || ITER; const salt = bytesFromB64url(parts[2]); const hash = bytesFromB64url(parts[3]);
-  const keyMaterial = await crypto.subtle.importKey("raw", te.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: iter }, keyMaterial, hash.length * 8);
-  const out = new Uint8Array(bits); return timeSafeEqual(out, hash);
+  const parts = stored.split("$");
+  if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+
+  const iter = parseInt(parts[1], 10) || ITER;
+  const salt = bytesFromB64url(parts[2]);
+  const hash = bytesFromB64url(parts[3]);
+
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    BS(te.encode(password)),
+    "PBKDF2",
+    false,
+    ["deriveBits"]
+  );
+
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: BS(salt), iterations: iter },
+    keyMaterial,
+    hash.length * 8
+  );
+
+  const out = new Uint8Array(bits);
+  return timeSafeEqual(out, hash);
 }
