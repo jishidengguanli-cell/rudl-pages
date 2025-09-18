@@ -1,6 +1,6 @@
 // functions/dl/[code].ts
 // /dl/:code?p=apk | /dl/:code?p=ios
-// 規則：apk 扣 3 點、ios 扣 5 點；餘額存在 KV: POINTS（key: points:<ownerUid>）
+// 規則：apk 扣 3 點、ios 扣 5 點；餘額在 KV: POINTS（key: points:<ownerUid>）
 
 import { deductForOwner } from '../_points.js';
 
@@ -14,7 +14,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const code = String(ctx.params?.code || '');
   if (!code) return text('Invalid code', 400);
 
-  // 讀取 link 紀錄（和 /d/[code].ts 相同來源）
+  // 讀取 link 紀錄（與 /d/[code].ts 相同來源）
   const raw = await ctx.env.LINKS.get(`link:${code}`);
   if (!raw) return text('Not Found', 404);
 
@@ -26,6 +26,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     lang?: string;
     apk_key?: string;
     ipa_key?: string;
+    owner?: string;             // ← 你的資料就是這個欄位
     uid?: string; userId?: string; ownerUid?: string;
   };
 
@@ -51,20 +52,20 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     return text('Missing p=apk|ios', 400);
   }
 
-  // 取 link 擁有者（會員）UID —— 請以你的實際欄位為準
-  const ownerUid = (rec.uid || rec.userId || rec.ownerUid);
+  // ★ 用你的欄位名取出擁有者 UID（先 owner，再其他可能欄位）
+  const ownerUid = rec.owner || rec.uid || rec.userId || rec.ownerUid;
   if (!ownerUid) return text('Owner not found', 500);
 
   // 去重鍵（避免重覆扣點）
   const opId = `dl:${type === 'apk' ? 'android' : 'ios'}:${ownerUid}:${code}:${Date.now()}`;
 
-  // ★ 先扣點（失敗就不送檔）
+  // 先扣點；不足就不送檔
   const deduct = await deductForOwner(ctx.env, ownerUid, type === 'apk' ? 'android' : 'ios', opId);
   if (!deduct.ok) {
     return text('The download is temporarily unavailable (insufficient points).', deduct.status || 402);
   }
 
-  // 非阻塞統計（可安全移除；這裡只寫一個輕量去重計數鍵）
+  // 簡單統計（可移除）
   ctx.waitUntil(safeIncr(ctx.env.LINKS, code, type));
 
   // 302 轉向到真正目的地
@@ -84,11 +85,9 @@ function noStore() {
   };
 }
 
-// 最小化的統計，避免撞到你現有資料結構：僅寫一個 1 小時 TTL 的 hit key。
-// 如果你有正式的 incrCounters()，改成 ctx.waitUntil(你的函式(...)) 即可。
 async function safeIncr(links: KVNamespace, code: string, type: 'apk'|'ipa') {
   try {
-    const key = `stat:hit:${code}:${type}:${Math.floor(Date.now() / (1000 * 60 * 60))}`; // 以小時聚合
+    const key = `stat:hit:${code}:${type}:${Math.floor(Date.now() / (1000 * 60 * 60))}`;
     const cur = parseInt((await links.get(key)) || '0', 10);
     await links.put(key, String(cur + 1), { expirationTtl: 60 * 60 * 24 * 7 });
   } catch {}
