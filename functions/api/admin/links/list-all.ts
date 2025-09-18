@@ -68,6 +68,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   }
 
   // 依建立時間 DESC
+  const hasMore = !!next;
   items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  return J({ ok: true, items, cursor: next });
+  return J({ ok: true, items, cursor: hasMore ? next : null, list_complete: !hasMore });
 };

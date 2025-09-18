@@ -132,7 +132,8 @@ const fmt = (ts)=> ts ? new Date(ts).toLocaleString() : "-";
 
 
 /* ====== 所有分發（搜尋/排序/分頁/批刪） ====== */
-let cursorL = undefined, loadingL = false, selectedCodes = new Set();
+let cursorL = null, loadingL = false;
+const seenCodes = new Set();
 
 function renderLinksRow(it){
   const tr = document.createElement('tr');
@@ -152,24 +153,44 @@ function renderLinksRow(it){
 
 async function loadAllLinks(reset=false){
   if (loadingL) return; loadingL = true;
-  if (reset){ cursorL = undefined; document.getElementById('links').innerHTML=''; }
+
+  if (reset){
+    cursorL = null;
+    seenCodes.clear();
+    document.getElementById('links').innerHTML = '';
+  }
+
   const url = new URL('/api/admin/links/list-all', location.origin);
+  url.searchParams.set('limit','5'); // 每頁 5 筆
+  const q = (document.getElementById('qLinks')?.value || '').trim();
+  if (q) url.searchParams.set('q', q);
   if (cursorL) url.searchParams.set('cursor', cursorL);
-  url.searchParams.set('limit', '50');
-  url.searchParams.set('q', document.getElementById('qLinks').value.trim());
-  url.searchParams.set('sort', document.getElementById('sortLinks').value);
-  url.searchParams.set('order', document.getElementById('orderLinks').value);
 
   const r = await fetch(url, { credentials:'include' });
-  if (!r.ok){ document.getElementById('links').innerHTML = '<tr><td colspan="9">讀取失敗或無權限</td></tr>'; loadingL=false; return; }
   const data = await r.json();
 
-  for (const it of data.items) {
-    const tr = renderLinksRow(it);
-    document.getElementById('links').appendChild(tr);
+  // 寫入資料（去重）
+  const tbody = document.getElementById('links');
+  for (const it of data.items || []){
+    if (seenCodes.has(it.code)) continue;
+    seenCodes.add(it.code);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="checkbox" data-code="${it.code}"></td>
+      <td><a href="/d/${it.code}" target="_blank">${it.code}</a></td>
+      <td>${it.owner||''}</td>
+      <td>${it.platform||''}</td>
+      <td>${it.filename||''}</td>
+      <td>${it.today||0}</td>
+      <td>${it.total||0}</td>
+      <td>${it.createdAt ? new Date(it.createdAt).toLocaleString() : '-'}</td>
+      <td><button class="btn red" data-del="${it.code}">刪除</button></td>`;
+    tbody.appendChild(tr);
   }
-  cursorL = data.cursor || undefined;
-  document.getElementById('moreLinks').style.display = data.list_complete ? 'none' : 'inline-block';
+  // 更新 cursor 與按鈕狀態
+  cursorL = data && data.cursor ? data.cursor : null;
+  const moreBtn = document.getElementById('moreLinks');
+  moreBtn.style.display = cursorL ? 'inline-block' : 'none';
   bindLinkRowEvents();
   loadingL = false;
   updateBulkBtn();
@@ -319,4 +340,28 @@ $('logout').addEventListener('click', async (e)=>{
   try{ await fetch('/api/auth/logout', {method:'POST', credentials:'include'}); }catch{}
   location.href = '/login.html';
 });
+
+function renderUserRow(u){
+  const url = `/admin_user.html?uid=${encodeURIComponent(u.uid)}`;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><a href="${url}">${u.email || '-'}</a></td>
+    <td><a href="${url}">${u.uid}</a></td>
+    <td>${u.role}</td>
+    <td>${u.createdAt ? new Date(u.createdAt).toLocaleString() : '-'}</td>
+    <td style="white-space:nowrap;display:flex;gap:6px">
+      <button class="btn" data-role="${u.uid}|${u.role==='admin'?'user':'admin'}">
+        ${u.role==='admin'?'降為一般':'升為管理員'}
+      </button>
+      <button class="btn" data-reset="${u.uid}">重設密碼</button>
+      <button class="btn red" data-u-del="${u.uid}">刪除</button>
+    </td>
+  `;
+  // 可選：整列點擊（避開操作鈕）
+  tr.addEventListener('click', (e)=>{
+    if (e.target.closest('button')) return;
+    location.href = url;
+  });
+  return tr;
+}
 </script>
