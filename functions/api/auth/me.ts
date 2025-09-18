@@ -1,23 +1,26 @@
-import { readCookie, verifySession } from '../_lib/auth'
+/// <reference types="@cloudflare/workers-types" />
+import { readCookie, verifySession } from "../_lib/auth";
+import type { Env } from "../_lib/auth"; // 🔧 用 type 匯入
 
-export const onRequestGet = async (ctx: any) => {
-  const sid = readCookie(ctx.request, 'sid')
-  if (!sid) return json({ authenticated: false })
+// 如果你的 ../_lib/auth 沒有匯出 Env 型別，就用下面這段取代上一行：
+// export interface Env { SESSION_SECRET: string; POINTS: KVNamespace }
 
-  let p: any = null
-  try { p = await verifySession(ctx.env.SESSION_SECRET, sid) }
-  catch { /* ignore */ }
+export const onRequestGet: PagesFunction<Env> = async (ctx) => {
+  const sid = readCookie(ctx.request, "sid");
+  if (!sid) return json({ authenticated: false });
 
-  if (!p) return json({ authenticated: false })
-  return json({ authenticated: true, id: p.uid, email: p.email })
-}
+  const p = await verifySession(ctx.env.SESSION_SECRET, sid);
+  if (!p) return json({ authenticated: false });
 
-function json(obj: unknown, status = 200): Response {
+  return json({ authenticated: true, uid: p.uid, email: p.email });
+};
+
+function json(obj: any, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
     headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
     },
-  })
+  });
 }

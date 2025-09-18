@@ -30,17 +30,11 @@
 
     <div class="hr"></div>
 
-    <div class="stack">
-      <button id="dl-android">Download Android (-3 pts)</button>
-      <button id="dl-ios">Download iOS (-5 pts)</button>
-      <button id="refresh">Refresh</button>
-    </div>
-
     <p class="notice">
       Downloads cost 3 pts (Android) and 5 pts (iOS). You can recharge any time.
     </p>
     <p>
-      Currently only accepts virtual currency payments, e-wallet addresses:TDDMd9dAPqMnk44GDitfr4NKmwuMH3i9D6
+      Currently only accepts crypto payments, e-wallet addresses:TDDMd9dAPqMnk44GDitfr4NKmwuMH3i9D6
     </p>
   </div>
 
@@ -117,10 +111,6 @@
       window.dispatchEvent(new Event('points:updated'));
       localStorage.setItem('points:updated', String(Date.now()));
     }
-
-    document.getElementById('dl-android').onclick = () => deduct('android');
-    document.getElementById('dl-ios').onclick = () => deduct('ios');
-    document.getElementById('refresh').onclick = () => loadBalance();
 
     // init
     (async () => {
