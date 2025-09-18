@@ -40,11 +40,11 @@
 
   <script>
     // --- 確保每個瀏覽器有一個 uid（存在 cookie） ---
-    (function ensureUid(){
-      if (document.cookie.split('; ').some(v => v.startsWith('uid='))) return;
-      const uid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
-      document.cookie = `uid=${encodeURIComponent(uid)}; Path=/; Max-Age=${60*60*24*365}; SameSite=Lax`;
-    })();
+    // (function ensureUid(){
+    //   if (document.cookie.split('; ').some(v => v.startsWith('uid='))) return;
+    //   const uid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+    //   document.cookie = `uid=${encodeURIComponent(uid)}; Path=/; Max-Age=${60*60*24*365}; SameSite=Lax`;
+    // })();
 
     const elBal = document.querySelector('#balance');
     const elPlans = document.querySelector('#plans');
