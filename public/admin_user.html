@@ -1,25 +1,28 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>會員資料｜RU Download</title>
 <style>
-  :root{color-scheme:dark}
+  :root { color-scheme: dark; }
   body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#0f172a;color:#e2e8f0}
   header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #1e293b}
   a{color:#93c5fd;text-decoration:none}
   .wrap{max-width:1080px;margin:18px auto;padding:0 16px}
-  .grid{display:grid;gap:12px}.cols{grid-template-columns:1fr}@media(min-width:900px){.cols{grid-template-columns:1fr 1fr}}
+  .grid{display:grid;gap:12px}
+  .cols{grid-template-columns:1fr}
+  @media(min-width:900px){ .cols{grid-template-columns:1fr 1fr} }
   .card{background:#0b1220;border:1px solid #1e293b;border-radius:10px;padding:14px}
   .card h3{margin:0 0 10px}
   table{width:100%;border-collapse:separate;border-spacing:0 8px}
   th,td{padding:10px 12px}
   tr{background:#0b1220;border:1px solid #1e293b}
-  th{text-align:left;opacity:.7}
+  th{opacity:.7;text-align:left}
   .btn{background:#1f2937;border:none;color:#e5e7eb;padding:8px 12px;border-radius:8px;cursor:pointer}
   .btn.red{background:#7f1d1d}
-  input{background:#0b1324;border:1px solid #23324a;color:#e2e8f0;padding:8px 10px;border-radius:8px}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  input,select{background:#0b1324;border:1px solid #23324a;color:#e2e8f0;padding:8px 10px;border-radius:8px}
   .muted{opacity:.7}
 </style>
 </head>
@@ -30,26 +33,31 @@
 </header>
 
 <div class="wrap grid cols">
+
   <div class="card">
     <h3>會員</h3>
     <div id="profile" class="muted">載入中…</div>
-    <div class="row" style="margin-top:10px"><strong>點數餘額：</strong><span id="balance">—</span></div>
     <div class="row" style="margin-top:10px">
-      <input id="adjDelta" placeholder="調整點數（正負整數）" style="width:200px">
+      <strong>點數餘額：</strong><span id="balance">—</span>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <input id="adjDelta" placeholder="調整點數（可正負整數）" style="width:200px">
       <input id="adjNote" placeholder="備註（可留空）" style="width:260px">
       <button class="btn" id="doAdjust">送出調整</button>
     </div>
-    <small class="muted">＊僅管理員可調整；+＝充值，−＝扣回。</small>
+    <small class="muted">＊僅管理員可調整；+ 表示充值、- 表示扣回。</small>
   </div>
 
   <div class="card">
     <h3>點數流水</h3>
     <div class="row" style="margin-bottom:8px">
-      <input id="qLedger" placeholder="搜尋：code / os / kind / 備註">
+      <input id="qLedger" placeholder="搜尋：code/os/kind/note…">
       <button class="btn" id="refreshLedger">搜尋</button>
     </div>
     <table>
-      <thead><tr><th>時間</th><th>變動</th><th>餘額</th><th>類型</th><th>code</th><th>OS</th><th>備註</th></tr></thead>
+      <thead><tr>
+        <th>時間</th><th>變動</th><th>餘額</th><th>類型</th><th>code</th><th>OS</th><th>備註</th>
+      </tr></thead>
       <tbody id="ledger"></tbody>
     </table>
     <div class="row" style="justify-content:space-between">
@@ -67,94 +75,108 @@
       <tbody id="links"></tbody>
     </table>
   </div>
+
 </div>
 
 <script>
-const qs = new URLSearchParams(location.search);
-const uid = qs.get("uid") || "";
-if(!uid){ alert("缺少 uid"); location.href="/admin.html"; }
+  const qs = new URLSearchParams(location.search);
+  const uid = qs.get("uid") || "";
+  if (!uid) { alert("缺少 uid"); location.href="/admin.html"; }
 
-let cursorLed, stackLed=[];
+  let cursorLed = undefined, stackLed = [];
 
-const get = async u => (await fetch(u,{credentials:"include"})).json();
-const post = async (u,d)=> (await fetch(u,{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify(d)})).json();
+  async function httpGet(url){ const r = await fetch(url, {credentials:"include"}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+  async function httpPost(url, data){ const r = await fetch(url,{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify(data)}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
 
-async function loadUser(){
-  const d = await get(`/api/admin/users/get?uid=${encodeURIComponent(uid)}`);
-  if(!d.ok){ alert("讀取會員失敗"); return; }
-  const p = d.profile;
-  document.getElementById("profile").innerHTML =
-    `Email：<b>${p.email}</b><br>UID：${p.uid}<br>角色：${p.role}<br>註冊時間：${p.createdAt?new Date(p.createdAt).toLocaleString():"-"}`;
-  document.getElementById("balance").textContent = d.balance;
+  // 會員彙整
+  async function loadUser(){
+    const d = await httpGet(`/api/admin/users/get?uid=${encodeURIComponent(uid)}`);
+    const p = d.profile;
+    document.getElementById("profile").innerHTML =
+      `Email：<b>${p.email}</b><br>UID：${p.uid}<br>角色：${p.role}<br>註冊時間：${p.createdAt ? new Date(p.createdAt).toLocaleString() : "-"}`;
+    document.getElementById("balance").textContent = d.balance;
 
-  const tb = document.getElementById("links"); tb.innerHTML="";
-  for(const it of d.links){
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><a target="_blank" href="/d/${it.code}">${it.code}</a></td>
-      <td>${it.filename||""}</td>
-      <td>${it.apkToday||0} / ${it.apkTotal||0}</td>
-      <td>${it.ipaToday||0} / ${it.ipaTotal||0}</td>
-      <td>${it.today||0} / ${it.total||0}</td>
-      <td>${it.createdAt?new Date(it.createdAt).toLocaleString():"-"}</td>
-      <td><button class="btn red" data-del="${it.code}">刪除</button></td>`;
-    tb.appendChild(tr);
+    const tb = document.getElementById("links"); tb.innerHTML="";
+    for (const it of d.links) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><a target="_blank" href="/d/${it.code}">${it.code}</a></td>
+        <td>${it.filename||""}</td>
+        <td>${it.apkToday||0} / ${it.apkTotal||0}</td>
+        <td>${it.ipaToday||0} / ${it.ipaTotal||0}</td>
+        <td>${it.today||0} / ${it.total||0}</td>
+        <td>${it.createdAt ? new Date(it.createdAt).toLocaleString() : "-"}</td>
+        <td><button class="btn red" data-del="${it.code}">刪除</button></td>`;
+      tb.appendChild(tr);
+    }
+
+    document.querySelectorAll('button[data-del]').forEach(btn=>{
+      btn.onclick = async()=>{
+        const code = btn.getAttribute('data-del');
+        if (!confirm(`刪除分發 ${code} ？`)) return;
+        btn.disabled = true; btn.textContent = "刪除中…";
+        try{
+          await httpPost("/api/admin/links/delete", { code });
+          btn.closest("tr")?.remove();
+        }catch(e){ alert("刪除失敗"); }
+      };
+    });
   }
-  document.querySelectorAll('button[data-del]').forEach(btn=>{
-    btn.onclick = async ()=>{
-      const code = btn.getAttribute("data-del");
-      if(!confirm(`刪除分發 ${code}？`)) return;
-      btn.disabled = true; btn.textContent="刪除中…";
-      const r = await post("/api/admin/links/delete",{code});
-      if(r.ok!==false) btn.closest("tr")?.remove(); else alert("刪除失敗");
-    };
-  });
-}
 
-document.getElementById("doAdjust").onclick = async ()=>{
-  const delta = Number((document.getElementById("adjDelta").value||"").trim());
-  if(!Number.isFinite(delta) || Math.floor(delta)!==delta) return alert("請輸入整數");
-  const note = (document.getElementById("adjNote").value||"").trim();
-  const r = await post("/api/admin/points/adjust",{uid,delta,note});
-  if(r.ok){ document.getElementById("balance").textContent=r.balance; document.getElementById("adjDelta").value=""; document.getElementById("adjNote").value=""; loadLedger(true); }
-  else alert("調整失敗");
-};
+  // 調整點數
+  document.getElementById("doAdjust").onclick = async()=>{
+    const delta = Number((document.getElementById("adjDelta").value||"").trim());
+    const note = (document.getElementById("adjNote").value||"").trim();
+    if (!Number.isFinite(delta) || Math.floor(delta)!==delta) return alert("請輸入整數");
+    try{
+      const r = await httpPost("/api/admin/points/adjust", { uid, delta, note });
+      document.getElementById("balance").textContent = r.balance;
+      document.getElementById("adjDelta").value = "";
+      document.getElementById("adjNote").value = "";
+      loadLedger(true);
+    }catch(e){ alert("調整失敗"); }
+  };
 
-async function loadLedger(reset){
-  if(reset){ cursorLed=undefined; stackLed=[]; document.getElementById("ledger").innerHTML=""; }
-  const q = encodeURIComponent(document.getElementById("qLedger").value||"");
-  const url = new URL("/api/admin/points/ledger", location.origin);
-  url.searchParams.set("uid", uid);
-  url.searchParams.set("limit","5");
-  if(cursorLed) url.searchParams.set("cursor", cursorLed);
-  if(q) url.searchParams.set("q", q);
-  const d = await get(url.toString());
-  cursorLed = d.cursor || undefined;
-  const tb = document.getElementById("ledger");
-  for(const e of d.items || []){
-    const tr=document.createElement("tr");
-    tr.innerHTML = `
-      <td>${new Date(e.ts).toLocaleString()}</td>
-      <td>${e.delta>0?`+${e.delta}`:e.delta}</td>
-      <td>${e.balance_after}</td>
-      <td>${e.kind}</td>
-      <td>${e.code||""}</td>
-      <td>${e.os||""}</td>
-      <td>${e.note||""}</td>`;
-    tb.appendChild(tr);
+  // 流水：分頁＋搜尋
+  async function loadLedger(reset=false){
+    if(reset){ cursorLed = undefined; stackLed = []; }
+    const q = encodeURIComponent(document.getElementById("qLedger").value||"");
+    const url = new URL(`/api/admin/points/ledger`, location.origin);
+    url.searchParams.set("uid", uid);
+    url.searchParams.set("limit", "5");
+    if (cursorLed) url.searchParams.set("cursor", cursorLed);
+    if (q) url.searchParams.set("q", q);
+    const d = await httpGet(url.toString());
+    cursorLed = d.cursor || undefined;
+    const tb = document.getElementById("ledger");
+    if (!cursorLed) tb.innerHTML = "";
+    for (const e of d.items) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${new Date(e.ts).toLocaleString()}</td>
+        <td>${e.delta>0?`+${e.delta}`:e.delta}</td>
+        <td>${e.balance_after}</td>
+        <td>${e.kind}</td>
+        <td>${e.code||""}</td>
+        <td>${e.os||""}</td>
+        <td>${e.note||""}</td>`;
+      tb.appendChild(tr);
+    }
+    // 簡單的上一頁：把已取的游標存堆疊
+    stackLed.push(cursorLed);
+    document.getElementById("prevLed").disabled = stackLed.length<=1;
+    document.getElementById("nextLed").disabled = !cursorLed;
   }
-  stackLed.push(cursorLed);
-  document.getElementById("prevLed").disabled = stackLed.length<=1;
-  document.getElementById("nextLed").disabled = !cursorLed;
-}
-document.getElementById("refreshLedger").onclick=()=>loadLedger(true);
-document.getElementById("nextLed").onclick = ()=>loadLedger(false);
-document.getElementById("prevLed").onclick = ()=>{
-  if(stackLed.length>1){ stackLed.pop(); cursorLed = stackLed[stackLed.length-1]; loadLedger(true); }
-};
 
-loadUser();
-loadLedger(true);
+  document.getElementById("refreshLedger").onclick = ()=>loadLedger(true);
+  document.getElementById("nextLed").onclick = ()=>loadLedger(false);
+  document.getElementById("prevLed").onclick = ()=>{
+    if (stackLed.length>1){ stackLed.pop(); cursorLed = stackLed[stackLed.length-1]; loadLedger(true); }
+  };
+
+  // 初始化
+  loadUser();
+  loadLedger(true);
 </script>
 </body>
 </html>

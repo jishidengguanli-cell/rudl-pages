@@ -1,6 +1,4 @@
-// functions/api/_lib/points.ts
-// 共用點數／流水／分發計數工具（不動你現有的 points:<uid> 餘額鍵）
-
+// functions/_lib/points.ts
 import type { Env as AuthEnv } from "./auth";
 
 export interface Env extends AuthEnv {
@@ -9,13 +7,10 @@ export interface Env extends AuthEnv {
   LINKS: KVNamespace;
 }
 
-export const J = (obj: any, status = 200) =>
+const J = (obj: any, status = 200) =>
   new Response(JSON.stringify(obj), {
     status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    },
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
 
 const nowTs = () => Date.now();
@@ -27,59 +22,62 @@ export async function getUserEmail(env: Env, uid: string): Promise<string> {
   try { return (JSON.parse(raw).email || "") as string; } catch { return ""; }
 }
 
-// —— 餘額（沿用 points:<uid>）——
+// —— 餘額：沿用你現有的 key「points:<uid>」——
 export async function getBalance(env: Env, uid: string): Promise<number> {
   const v = await env.POINTS.get(`points:${uid}`);
   return v ? Number(v) || 0 : 0;
 }
-export async function setBalance(env: Env, uid: string, value: number) {
+export async function setBalance(env: Env, uid: string, value: number): Promise<void> {
   await env.POINTS.put(`points:${uid}`, String(Math.max(0, Math.floor(value))));
 }
 
-// —— 流水 ——
-// ptlog:<uid>:<ts>-<rand>  （單人流水）
-// topup:<ts>-<rand>        （全站充值彙總）
 export type LogKind = "spend" | "topup" | "admin_adjust";
 export interface LogEntry {
   ts: number;
   delta: number;
   balance_after: number;
   kind: LogKind;
-  code?: string;
-  os?: "apk" | "ipa";
-  note?: string;
-  uid: string;
-  email?: string;
-  by?: string;
+  code?: string;     // 分發 code（spend 用）
+  os?: "apk" | "ipa"; // 平台（spend 用）
+  note?: string;     // 備註
+  uid: string;       // 會員 uid
+  email?: string;    // 當下快照，查詢用
+  by?: string;       // 操作者（admin email）
 }
+
 async function writeLedger(env: Env, uid: string, entry: LogEntry) {
   const key = `ptlog:${uid}:${String(entry.ts).padStart(13, "0")}-${rid()}`;
   await env.POINTS.put(key, JSON.stringify(entry));
 }
+
 export async function writeTopup(env: Env, entry: LogEntry & { amount: number }) {
   const key = `topup:${String(entry.ts).padStart(13, "0")}-${rid()}`;
   await env.POINTS.put(key, JSON.stringify(entry));
 }
 
-// —— 1 分鐘只扣一次（以 uid+code+os 判斷）——
+// —— 1 分鐘內只扣一次（以 uid+code+os），成功時回傳新餘額 ——
+// 失敗（餘額不足）回傳 {error:"insufficient"}
 export async function spendOncePerMinute(
   env: Env,
   uid: string,
   cost: number,
   meta: { code: string; os: "apk" | "ipa"; note?: string; by?: string }
 ): Promise<{ ok: true; balance: number } | { error: string }> {
+
   const coolKey = `ptcool:${uid}:${meta.code}:${meta.os}`;
   const existed = await env.POINTS.get(coolKey);
   if (existed) {
+    // 冷卻期內，不扣點
     const bal = await getBalance(env, uid);
     return { ok: true, balance: bal };
   }
+
   const bal = await getBalance(env, uid);
   if (bal < cost) return { error: "insufficient" };
 
   const newBal = bal - cost;
   await setBalance(env, uid, newBal);
-  await env.POINTS.put(coolKey, "1", { expirationTtl: 60 });
+  await env.POINTS.put(coolKey, "1", { expirationTtl: 60 }); // 1 分鐘冷卻
 
   const email = await getUserEmail(env, uid);
   const ts = nowTs();
@@ -87,10 +85,11 @@ export async function spendOncePerMinute(
     ts, delta: -cost, balance_after: newBal, kind: "spend",
     code: meta.code, os: meta.os, note: meta.note, uid, email, by: meta.by
   });
+
   return { ok: true, balance: newBal };
 }
 
-// —— 後台手動調整（正負皆可；正數=topup，負數=admin_adjust）——
+// —— 後台調整（正負皆可，delta>0 視為 topup，<=0 視為 admin_adjust）——
 export async function adminAdjust(
   env: Env,
   uid: string,
@@ -112,16 +111,19 @@ export async function adminAdjust(
 
   if (delta > 0) {
     await writeTopup(env, {
-      ts, delta, balance_after: newBal, kind, note, uid, email, by: adminEmail, amount: delta
+      ts, delta, balance_after: newBal, kind,
+      note, uid, email, by: adminEmail, amount: delta
     });
   }
   return { balance: newBal };
 }
 
-// —— 分發計數讀取（依你現存鍵名 cnt<code>apktotal/ipatotal/total + day）——
+// —— 小工具：今天日期 yyyymmdd —— 
 export function yyyymmdd(d = new Date()) {
-  return d.toISOString().slice(0, 10).replace(/-/g, "");
+  return d.toISOString().slice(0,10).replace(/-/g, "");
 }
+
+// —— 分發計數讀取（apk / ipa / 總，今日＋累計）——
 export async function readLinkCounters(env: Env, code: string) {
   const day = yyyymmdd();
   const [apkT, ipaT, totT, apkD, ipaD, totD] = await Promise.all([
@@ -141,3 +143,5 @@ export async function readLinkCounters(env: Env, code: string) {
     today: Number(totD || 0),
   };
 }
+
+export { J };
