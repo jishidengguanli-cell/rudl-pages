@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "WebWorker"],               // Workers/Pages 用的是 Web Worker 環境
+    "module": "esnext",
+    "moduleResolution": "Bundler",                // Pages Functions/Workers 比較符合 Bundler 解析
+    "types": ["@cloudflare/workers-types"],       // 關鍵：讓 VS Code 認得 PagesFunction、KVNamespace
+    "strict": false,
+    "noEmit": true,
+    "checkJs": false
+  },
+  "include": ["functions/**/*.ts", "functions/**/*.tsx", "**/*.d.ts"],
+  "exclude": ["node_modules"]
+}

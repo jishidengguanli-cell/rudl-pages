@@ -1,11 +1,12 @@
 // functions/d/[code].ts
 // 下載頁：多語系（zh-TW / en / zh-CN / ru / vi）+ 語言切換器 + iOS 引導面板
-
+import { deductForOwner } from '../_points.js';
 export interface Env { LINKS: KVNamespace; }
 
 export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const code = String(ctx.params?.code || "");
   if (!code) return resp404("Invalid code");
+  
 
   const raw = await ctx.env.LINKS.get(`link:${code}`);
   if (!raw) return resp404("Not Found");

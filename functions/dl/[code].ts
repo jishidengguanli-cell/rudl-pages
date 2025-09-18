@@ -1,69 +1,73 @@
 // functions/dl/[code].ts
-// 計數 + 轉址（p=apk 或 p=ios）
-export interface Env {
-  LINKS: KVNamespace;
-}
+import { deductForOwner } from '../_points';
+export interface Env { LINKS: KVNamespace; POINTS: KVNamespace }
 
-export const onRequestGet: PagesFunction<Env> = async (ctx) => {
-  const url  = new URL(ctx.request.url);
-  const code = String(ctx.params?.code || "");
-  const p    = (url.searchParams.get("p") || "").toLowerCase(); // 'apk' | 'ios' | 'ipa'
-
-  if (!code) return new Response("Bad Request", { status: 400 });
-
-  const raw = await ctx.env.LINKS.get(`link:${code}`);
-  if (!raw) return new Response("Not Found", { status: 404, headers: noStore() });
-
-  const rec = JSON.parse(raw) as { code: string; apk_key?: string; ipa_key?: string };
-
-  // 目標連結
-  let destination = "";
-  let type: "apk" | "ipa" | null = null;
-
-  if (p === "apk") {
-    if (!rec.apk_key) return new Response("APK Not Found", { status: 404, headers: noStore() });
-    destination = `https://cdn.rudownload.win/${encodeURI(rec.apk_key)}`;
-    type = "apk";
-  } else if (p === "ios" || p === "ipa") {
-    if (!rec.ipa_key) return new Response("IPA Not Found", { status: 404, headers: noStore() });
-    const manifest = `https://app.rudownload.win/m/${encodeURIComponent(code)}`;
-    destination = `itms-services://?action=download-manifest&url=${encodeURIComponent(manifest)}`;
-    type = "ipa";
-  } else {
-    return new Response("Missing p=apk|ios", { status: 400, headers: noStore() });
-  }
-
-  // 計數（非阻塞）
-  if (type) ctx.waitUntil(incrCounters(ctx.env.LINKS, code, type));
-
-  // 302 轉址
-  return new Response(null, { status: 302, headers: { Location: destination, ...noStore() } });
+type LinkRecord = {
+  code: string;
+  title?: string;
+  version2?: string;
+  bundle_id?: string;
+  lang?: string;
+  apk_key?: string;
+  apk_url?: string;     // 若你有直接存完整 URL，就用這個
+  ipa_key?: string;
+  uid?: string;         // 會員 UID（建議在建立 link 時就存這個）
+  userId?: string;
+  ownerUid?: string;
 };
 
-async function incrCounters(KV: KVNamespace, code: string, type: "apk" | "ipa") {
-  const now = Date.now();
-  const yyyymmdd = new Date(now).toISOString().slice(0, 10).replace(/-/g, ""); // 20250915
+export const onRequestGet: PagesFunction<Env> = async (ctx) => {
+  const { request, env, params } = ctx;
+  const code = String(params?.code || '');
+  if (!code) return new Response('Invalid code', { status: 400 });
 
-  // 總數（全部 / 各別）
-  await add1(KV, `cnt:${code}:total`);
-  await add1(KV, `cnt:${code}:${type}:total`);
+  const url = new URL(request.url);
+  const p = url.searchParams.get('p');            // 'apk' | 'ios'
+  if (p !== 'apk' && p !== 'ios') {
+    return new Response('Missing ?p=apk|ios', { status: 400 });
+  }
 
-  // 今日（全部 / 各別）— 設 60 天 TTL
-  const ttl = 60 * 24 * 60 * 60; // 秒
-  await add1(KV, `cnt:${code}:day:${yyyymmdd}`, ttl);
-  await add1(KV, `cnt:${code}:${type}:day:${yyyymmdd}`, ttl);
-}
+  const raw = await env.LINKS.get(`link:${code}`);
+  if (!raw) return new Response('Not Found', { status: 404 });
 
-async function add1(KV: KVNamespace, key: string, ttlSeconds?: number) {
-  const cur = parseInt((await KV.get(key)) || "0", 10) || 0;
-  const opts = ttlSeconds ? { expirationTtl: ttlSeconds } : undefined;
-  await KV.put(key, String(cur + 1), opts as any);
-}
+  let rec: LinkRecord;
+  try { rec = JSON.parse(raw) as LinkRecord; }
+  catch { return new Response('Broken record', { status: 500 }); }
 
-function noStore() {
-  return {
-    "cache-control": "no-store, private, max-age=0",
-    "cdns-cache-control": "no-store",
-    "x-robots-tag": "noindex",
-  };
-}
+  // 取得「這個分發連結的擁有者」UID（以下三選一，請保證 link 記錄裡有其一）
+  const ownerUid = rec.ownerUid || rec.uid || rec.userId;
+  if (!ownerUid) {
+    // 若你確定欄位名不同，請把這一行換成你的實際欄位
+    return new Response('ownerUid missing in link record', { status: 500 });
+  }
+
+  // 先扣點（去重用 opId；以「平台+uid+code+時間」生成）
+  const opId = `dl:${p}:${ownerUid}:${code}:${Date.now()}`;
+  const r = await deductForOwner(env, ownerUid, p === 'apk' ? 'android' : 'ios', opId);
+  if (!r.ok) {
+    // 餘額不足 → 回 402 與簡易提示頁（你可改成導去某個說明頁）
+    const html = `<!doctype html><meta charset="utf-8">
+      <title>Insufficient balance</title>
+      <div style="font-family:system-ui;padding:24px">
+        <h1 style="margin:0 0 12px">Temporarily unavailable</h1>
+        <p>The app owner has insufficient points. Please try again later.</p>
+      </div>`;
+    return new Response(html, { status: 402, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  }
+
+  // 扣點成功 → 轉向實際檔案 / iOS 安裝協議
+  if (p === 'apk') {
+    // Android：優先用 rec.apk_url；否則用你 CDN 與 apk_key 組 URL
+    const apkUrl =
+      rec.apk_url ||
+      (rec.apk_key ? `https://cdn.rudownload.win/${encodeURIComponent(rec.apk_key)}` : undefined);
+
+    if (!apkUrl) return new Response('APK not available', { status: 404 });
+    return Response.redirect(apkUrl, 302);
+  } else {
+    // iOS：走 itms-services 串 manifest（你已有 functions/m/[code].ts）
+    const manifestUrl = `${url.origin}/m/${encodeURIComponent(code)}`;
+    const itms = `itms-services://?action=download-manifest&url=${encodeURIComponent(manifestUrl)}`;
+    return Response.redirect(itms, 302);
+  }
+};
