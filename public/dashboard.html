@@ -276,7 +276,6 @@
     <div class="small" id="d-err" style="color:#fca5a5;margin-top:6px;min-height:18px"></div>
   </div>
 </div>
-<script src="/js/points-badge.js" defer></script>
 <script>
 let itemsByCode = {};        // 供編輯彈窗帶入資料
 let currentEditCode = null;  // 目前在編輯哪一筆
@@ -831,4 +830,28 @@ function parseBinaryPlist(buf) {
   const root = readObj(topObject);
   return root || {};
 }
+(function(){
+  function ensureUid(){
+    if (document.cookie.split('; ').some(v => v.startsWith('uid='))) return;
+    const uid = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+    document.cookie = `uid=${encodeURIComponent(uid)}; Path=/; Max-Age=${60*60*24*365}; SameSite=Lax`;
+  }
+  async function refresh(){
+    try{
+      const r = await fetch('/api/me/points', { cache:'no-store' });
+      const j = await r.json();
+      const el = document.getElementById('points-badge');
+      if (el) el.textContent = (j.points ?? 0) + ' pts';
+    }catch{
+      const el = document.getElementById('points-badge');
+      if (el) el.textContent = '-- pts';
+    }
+  }
+  ensureUid();
+  document.addEventListener('DOMContentLoaded', refresh);
+  window.addEventListener('points:updated', refresh);
+  window.addEventListener('storage', (e)=>{ if(e.key === 'points:updated') refresh(); });
+  // 登入成功後也可手動呼叫 refresh()
+  window.PointsUI = Object.assign(window.PointsUI || {}, { refresh });
+})();
 </script>
