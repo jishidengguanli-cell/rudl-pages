@@ -26,15 +26,22 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const got = await pbkdf2(password, salt, iter, expect.length);
   return timingSafeEqual(got, expect);
 }
-async function pbkdf2(password: string, salt: Uint8Array, iter: number, len: number) {
-  const key = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(password),
-    { name: "PBKDF2" }, false, ["deriveBits"]
+async function pbkdf2(password: string, salt: Uint8Array, iter: number, keyLen: number): Promise<Uint8Array> {
+  // importKey 的第二個參數需要 BufferSource（Uint8Array 就是）
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"]
   );
+
   const bits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", hash: "SHA-256", salt, iterations: iter },
-    key, len * 8
+    keyMaterial,
+    keyLen * 8
   );
+
   return new Uint8Array(bits);
 }
 

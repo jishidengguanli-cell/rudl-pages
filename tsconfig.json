@@ -1,14 +1,12 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "lib": ["ES2022", "WebWorker"],
-    "module": "esnext",
+    "target": "ES2021",
+    "module": "ESNext",
     "moduleResolution": "Bundler",
+    "lib": ["ES2021", "WebWorker"],
     "types": ["@cloudflare/workers-types"],
-    "strict": false,
-    "noEmit": true,
-    "checkJs": false
-  },
-  "include": ["functions/**/*.ts", "functions/**/*.tsx", "**/*.d.ts"],
-  "exclude": ["node_modules", "public", "**/*.js"]   // ← 關鍵：排除同名 .js
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  }
 }

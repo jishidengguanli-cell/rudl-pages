@@ -2,7 +2,7 @@
 // 建立充值訂單（目前為模擬付款：下單即加點）
 // 依據登入會員 uid（session）寫入 KV: POINTS，key = "points:<uid>"
 
-import { readCookie, verifySession } from "../../_lib/auth";
+import { readCookie, verifySession } from "./_lib/auth";
 
 // 與你的 plans.js 對齊：200/$15、500/$35、2000/$120、5000/$300、15000/$850
 const PLAN_MAP = {
