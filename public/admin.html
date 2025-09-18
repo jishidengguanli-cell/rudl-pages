@@ -47,6 +47,12 @@
   <!-- 使用者 -->
   <div class="card">
     <h3 style="margin:0 0 8px">使用者</h3>
+
+    <div class="row" style="margin:6px 0 10px">
+      <input id="qUsers" placeholder="搜尋：email / uid / 角色" style="flex:1;min-width:260px">
+      <button class="btn" id="searchUsers">搜尋</button>
+    </div>
+
     <table>
       <thead><tr><th>Email</th><th>UID</th><th>角色</th><th>建立時間</th><th>操作</th></tr></thead>
       <tbody id="users"></tbody>
@@ -140,19 +146,26 @@ const fmt = (ts)=> ts ? new Date(ts).toLocaleString() : "-";
 
 // ====== 使用者列表（點進會員頁） ======
 let uCursor = null, uLoading = false;
+
 async function loadUsers(reset=false){
   if (uLoading) return; uLoading = true;
-  if (reset){ uCursor = null; $('users').innerHTML=''; }
+  if (reset){ uCursor = null; document.getElementById('users').innerHTML=''; }
+
   const url = new URL('/api/admin/users/list', location.origin);
   if (uCursor) url.searchParams.set('cursor', uCursor);
-  url.searchParams.set('limit','50');
+  url.searchParams.set('limit','5'); // 每頁 5 筆
+  const q = (document.getElementById('qUsers')?.value || '').trim();
+  if (q) url.searchParams.set('q', q);
+
   const r = await fetch(url, {credentials:'include'});
-  if (!r.ok){ $('users').innerHTML = '<tr><td colspan="5">讀取失敗或無權限</td></tr>'; uLoading=false; return; }
+  if (!r.ok){ document.getElementById('users').innerHTML = '<tr><td colspan="5">讀取失敗或無權限</td></tr>'; uLoading=false; return; }
   const data = await r.json();
-  for (const u of data.items) $('users').appendChild(renderUserRow(u));
+
+  for (const u of data.items) document.getElementById('users').appendChild(renderUserRow(u));
   bindUserRowEvents();
+
   uCursor = data.cursor || null;
-  $('moreUsers').style.display = uCursor ? 'inline-block' : 'none';
+  document.getElementById('moreUsers').style.display = uCursor ? 'inline-block' : 'none';
   uLoading = false;
 }
 $('moreUsers').addEventListener('click', ()=>loadUsers(false));
@@ -351,4 +364,11 @@ $('logout').addEventListener('click', async (e)=>{
   try{ await fetch('/api/auth/logout', {method:'POST', credentials:'include'}); }catch{}
   location.href = '/login.html';
 });
+
+// 綁定搜尋按鈕與 Enter
+document.getElementById('searchUsers').addEventListener('click', ()=>loadUsers(true));
+document.getElementById('qUsers').addEventListener('keydown', (e)=>{ if (e.key==='Enter') loadUsers(true); });
+
+// 既有的 “載入更多”
+document.getElementById('moreUsers').addEventListener('click', ()=>loadUsers(false));
 </script>
