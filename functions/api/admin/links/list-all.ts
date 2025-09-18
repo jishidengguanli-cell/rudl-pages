@@ -1,75 +1,68 @@
 // functions/api/admin/links/list-all.ts
-import { readCookie, verifySession, Env as AuthEnv } from "../../_lib/auth";
+import { readCookie, verifySession } from "../../_lib/auth";
+import { J, readLinkCounters, Env as PEnv } from "../../_lib/points";
 
-export interface Env extends AuthEnv {
+interface Env extends PEnv {
   LINKS: KVNamespace;
+  USERS: KVNamespace;
   ADMIN_EMAILS: string;
 }
 
-const J = (obj: any, status = 200) =>
-  new Response(JSON.stringify(obj), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
-  });
-
-async function requireAdmin(ctx: PagesFunction<Env>["context"]) {
-  const sid = readCookie(ctx.request, "sid");
-  const me = sid ? await verifySession(ctx.env.SESSION_SECRET, sid) : null;
-  if (!me) return J({ error: "unauthorized" }, 401);
-  const emails = (ctx.env.ADMIN_EMAILS || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
-  if (!emails.includes((me.email || "").toLowerCase())) return J({ error: "forbidden" }, 403);
-  return me;
+async function isAdmin(env: Env, request: Request) {
+  const sid = readCookie(request, "sid");
+  const me = sid ? await verifySession(env.SESSION_SECRET, sid) : null;
+  const wl = (env.ADMIN_EMAILS || "").toLowerCase().split(/[,;\s]+/).filter(Boolean);
+  return me && wl.includes((me.email || "").toLowerCase());
+}
+async function uidToEmail(env: Env, uid: string) {
+  const raw = await env.USERS.get(`user:${uid}`);
+  if (!raw) return "";
+  try { return (JSON.parse(raw).email || "") as string; } catch { return ""; }
 }
 
-export const onRequestGet: PagesFunction<Env> = async (ctx) => {
-  const ok = await requireAdmin(ctx);
-  if (ok instanceof Response) return ok as unknown as Response;
+export const onRequestGet: PagesFunction<Env> = async (context) => {
+  const { request, env } = context;
+  if (!(await isAdmin(env, request))) return J({ error: "unauthorized" }, 401);
 
-  const url = new URL(ctx.request.url);
-  const cursor = url.searchParams.get("cursor") || undefined;
-  const limit = Math.min(100, Number(url.searchParams.get("limit") || "50") || 50);
+  const url = new URL(request.url);
+  const limit = Math.min(50, Number(url.searchParams.get("limit") || "5") || 5);
   const q = (url.searchParams.get("q") || "").toLowerCase();
-  const sort = (url.searchParams.get("sort") || "createdAt") as "createdAt" | "today" | "total";
-  const order = (url.searchParams.get("order") || "desc") as "asc" | "desc";
+  let cursor = url.searchParams.get("cursor") || undefined;
 
-  const res = await ctx.env.LINKS.list({ prefix: "link:", cursor, limit });
-  const todayKey = new Date().toISOString().slice(0,10).replace(/-/g, "");
+  const items: any[] = [];
+  let next = cursor, safety = 0;
 
-  let items = await Promise.all(res.keys.map(async (k) => {
-    const code = k.name.slice(5);
-    const raw = await ctx.env.LINKS.get(k.name);
-    let rec: any = {};
-    try { rec = raw ? JSON.parse(raw) : {}; } catch {}
-
-    const [totalAll, todayAll] = await Promise.all([
-      ctx.env.LINKS.get(`cnt:${code}:total`),
-      ctx.env.LINKS.get(`cnt:${code}:day:${todayKey}`),
-    ]);
-
-    return {
-      code,
-      owner: (rec.owner || "").toLowerCase(),
-      platform: rec.platform || rec.type || "",
-      filename: rec.filename || rec.name || "",
-      createdAt: rec.createdAt || rec.created_at || 0,
-      total: Number(totalAll || 0),
-      today: Number(todayAll || 0),
-    };
-  }));
-
-  if (q) {
-    items = items.filter(it =>
-      it.code.toLowerCase().includes(q) ||
-      it.owner.toLowerCase().includes(q) ||
-      (it.filename||"").toLowerCase().includes(q) ||
-      (it.platform||"").toLowerCase().includes(q)
-    );
+  while (items.length < limit && safety++ < 50) {
+    const res = await env.LINKS.list({ prefix: "link:", cursor: next || undefined, limit: 100 });
+    for (const k of res.keys) {
+      const code = k.name.slice(5);
+      const raw = await env.LINKS.get(k.name);
+      if (!raw) continue;
+      try {
+        const rec = JSON.parse(raw);
+        const ownerUid = rec.owner || rec.uid || "";
+        const ownerEmail = ownerUid ? await uidToEmail(env as any, ownerUid) : "";
+        const counters = await readLinkCounters(env as any, code);
+        const row = {
+          code,
+          owner: ownerEmail || ownerUid,
+          platform: rec.platform || rec.type || "",
+          filename: rec.filename || rec.name || "",
+          createdAt: rec.createdAt || rec.created_at || 0,
+          today: counters.today,
+          total: counters.total,
+        };
+        const text = `${row.code} ${row.owner} ${row.platform} ${row.filename}`.toLowerCase();
+        if (!q || text.includes(q)) {
+          items.push(row);
+          if (items.length >= limit) break;
+        }
+      } catch {}
+    }
+    if (items.length >= limit || res.list_complete) { next = res.cursor || undefined; break; }
+    next = res.cursor || undefined;
   }
 
-  items.sort((a,b) => {
-    const dir = order === "asc" ? 1 : -1;
-    return (a[sort] === b[sort] ? 0 : (a[sort] > b[sort] ? 1 : -1)) * dir;
-  });
-
-  return J({ ok:true, items, cursor: res.cursor, list_complete: res.list_complete });
+  items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)); // 建立時間 DESC
+  return J({ ok: true, items, cursor: next });
 };
