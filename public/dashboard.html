@@ -841,10 +841,10 @@ function parseBinaryPlist(buf) {
       const r = await fetch('/api/me/points', { cache:'no-store' });
       const j = await r.json();
       const el = document.getElementById('points-badge');
-      if (el) el.textContent = (j.points ?? 0) + ' pts';
+      if (el) el.textContent = (j.points ?? 0) + ' 剩餘點數';
     }catch{
       const el = document.getElementById('points-badge');
-      if (el) el.textContent = '-- pts';
+      if (el) el.textContent = '-- 剩餘點數';
     }
   }
   ensureUid();
