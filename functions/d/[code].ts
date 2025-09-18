@@ -196,6 +196,46 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
       if (!isiOS()) return;
       setTimeout(showGuide, 600);
     });
+
+    // 將頁面上的兩顆下載按鈕，改成：先扣點成功，才真的前往 /dl
+  var code = (location.pathname.split('/').pop() || '').trim(); // 也可用後端模板注入
+  function bindBilling(btnId, os){
+    var el = document.getElementById(btnId);
+    if (!el) return;
+    el.addEventListener('click', async function(e){
+      // iOS 引導面板如果你還要顯示，可以在這裡先處理；扣點在真正要跳轉前做
+      e.preventDefault();
+      el.disabled = true; el.textContent = '處理中…';
+
+      try{
+        const r = await fetch('/api/dl/bill', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code: code, os: os })
+        });
+
+        if (r.status === 200) {
+          // 扣成功 → 真的前往 /dl 讓它處理 302 或檔案串流
+          location.href = el.getAttribute('href');
+          return;
+        }
+        if (r.status === 402) {
+          alert('點數不足，請先充值。');
+          el.disabled = false; el.textContent = (os==='apk' ? '下載 Android' : '安裝 iOS');
+          return;
+        }
+        // 其他錯誤
+        alert('下載前置檢查失敗，請稍後重試。');
+      } catch (err){
+        alert('網路錯誤，請稍後重試。');
+      } finally {
+        // 若已跳轉就不會執行到這；若失敗就把按鈕還原
+      }
+    });
+  }
+  bindBilling('btn-android', 'apk');
+  bindBilling('btn-ios', 'ipa');
   })();
   </script>
 </body>

@@ -1,5 +1,6 @@
 // functions/_lib/points.ts
 import type { Env as AuthEnv } from "./auth";
+export const COST_PER_DOWNLOAD = { apk: 3, ipa: 5 } as const;
 
 export interface Env extends AuthEnv {
   POINTS: KVNamespace;
