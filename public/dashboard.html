@@ -276,7 +276,7 @@
     <div class="small" id="d-err" style="color:#fca5a5;margin-top:6px;min-height:18px"></div>
   </div>
 </div>
-<script src="/js/points-badge.js"></script>
+<script src="/js/points-badge.js" defer></script>
 <script>
 let itemsByCode = {};        // 供編輯彈窗帶入資料
 let currentEditCode = null;  // 目前在編輯哪一筆
@@ -297,6 +297,7 @@ let pendingDeleteCode = null;
     }
     meEl.textContent = `目前登入：${me.email}`;
     await loadList();
+    window.PointsUI?.refresh?.();
   } catch (err) {
     meEl.textContent = "載入失敗：" + (err?.message || err);
   }
