@@ -1,34 +1,43 @@
-// functions/api/me/points.ts
-import { readCookie, verifySession } from "../_lib/auth";
+// functions/_points.js
+// 純 JS 工具：讀餘額、扣點；供 functions/dl/[code].ts 呼叫
 
-export const onRequestGet: PagesFunction = async ({ request, env }) => {
-  // 先用登入 session 取得會員 uid
-  let uid = "";
-  try {
-    const sid = readCookie(request, "sid");
-    if (sid) {
-      const p = await verifySession(env.SESSION_SECRET, sid);
-      if (p?.uid) uid = p.uid;
+export const COST = { android: 3, ios: 5 };
+
+export async function getBalance(env, ownerUid) {
+  const key = `points:${ownerUid}`;
+  const cur = await env.POINTS.get(key);
+  return parseInt(cur || '0', 10);
+}
+
+/**
+ * 針對會員扣點（platform: 'android' | 'ios'）
+ * - ownerUid: 會員 UID（link 擁有者）
+ * - opId: 可選；若提供，7 天內同一 opId 不重覆扣
+ */
+export async function deductForOwner(env, ownerUid, platform, opId) {
+  const cost = platform === 'android' ? COST.android : COST.ios;
+
+  // 去重（可選）
+  if (opId) {
+    const opKey = `points:op:${opId}`;
+    const done = await env.POINTS.get(opKey);
+    if (done) {
+      return { ok: true, balance: await getBalance(env, ownerUid), deduped: true };
     }
-  } catch {}
-
-  // 兼容：若沒登入，退回舊的 cookie uid（避免你還在測試）
-  if (!uid) {
-    const cookie = request.headers.get("cookie") || "";
-    const m = cookie.match(/(?:^|;\s*)uid=([^;]+)/);
-    uid = m ? decodeURIComponent(m[1]) : "";
   }
 
-  if (!uid) return json({ points: 0 });
+  const key = `points:${ownerUid}`;
+  const cur = parseInt((await env.POINTS.get(key)) || '0', 10);
+  if (cur < cost) {
+    return { ok: false, status: 402, error: 'INSUFFICIENT_POINTS', balance: cur };
+  }
 
-  const key = `points:${uid}`;
-  const cur = await env.POINTS.get(key);
-  return json({ points: parseInt(cur || "0", 10) });
-};
+  const next = cur - cost;
+  await env.POINTS.put(key, String(next));
 
-function json(obj: any, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
-  });
+  if (opId) {
+    await env.POINTS.put(`points:op:${opId}`, '1', { expirationTtl: 60 * 60 * 24 * 7 });
+  }
+
+  return { ok: true, balance: next };
 }
