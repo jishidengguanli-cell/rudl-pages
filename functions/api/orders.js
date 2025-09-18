@@ -1,12 +1,12 @@
 // functions/api/orders.js
-import { getUid } from '../_utils.js';
+import { getUid } from '../../_utils.js';
 
 const PLAN_MAP = {
-  p100:   { points: 100,   priceCents: 1000   },
-  p500:   { points: 500,   priceCents: 4500   },
-  p2000:  { points: 2000,  priceCents: 15000  },
-  p5000:  { points: 5000,  priceCents: 40000  },
-  p15000: { points: 15000, priceCents: 110000 },
+  p200:   { points: 200,   priceCents: 1500   },
+  p500:   { points: 500,   priceCents: 3500   },
+  p2000:  { points: 2000,  priceCents: 12000  },
+  p5000:  { points: 5000,  priceCents: 30000  },
+  p15000: { points: 15000, priceCents: 85000  },
 };
 
 export async function onRequestPost({ request, env }) {
