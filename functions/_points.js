@@ -1,35 +1,30 @@
-// functions/_points.ts
-export const COST = { android: 3, ios: 5 } as const;
+// functions/_points.js
+export const COST = { android: 3, ios: 5 };
 
-export async function getBalance(env: { POINTS: KVNamespace }, ownerUid: string) {
+export async function getBalance(env, ownerUid) {
   const key = `points:${ownerUid}`;
-  const cur = parseInt((await env.POINTS.get(key)) || '0', 10);
+  const cur = parseInt(await env.POINTS.get(key) || '0', 10);
   return cur;
 }
 
 /**
- * 針對某「會員」扣點（平台 android / ios）
- * - ownerUid: 會員 UID（分發連結的擁有者）
- * - platform: 'android' | 'ios'
- * - opId: 去重 key（可選）；傳入一個可重試時不重複扣款的 id
+ * 針對「某個會員」扣點（platform: 'android' | 'ios'）
+ * - ownerUid: 會員 UID（link 所屬者）
+ * - opId: 可選，用來做去重（同一 opId 7 天內不重覆扣）
  */
-export async function deductForOwner(
-  env: { POINTS: KVNamespace },
-  ownerUid: string,
-  platform: 'android' | 'ios',
-  opId?: string
-) {
+export async function deductForOwner(env, ownerUid, platform, opId) {
   const cost = platform === 'android' ? COST.android : COST.ios;
 
-  // 去重（可選）：同 opId 7 天內只扣一次
+  // 去重（可選）
   if (opId) {
-    const done = await env.POINTS.get(`points:op:${opId}`);
+    const opKey = `points:op:${opId}`;
+    const done = await env.POINTS.get(opKey);
     if (done) return { ok: true, balance: await getBalance(env, ownerUid), deduped: true };
   }
 
   const key = `points:${ownerUid}`;
-  const cur = parseInt((await env.POINTS.get(key)) || '0', 10);
-  if (cur < cost) return { ok: false, status: 402 as const, error: 'INSUFFICIENT_POINTS', balance: cur };
+  const cur = parseInt(await env.POINTS.get(key) || '0', 10);
+  if (cur < cost) return { ok: false, status: 402, error: 'INSUFFICIENT_POINTS', balance: cur };
 
   const next = cur - cost;
   await env.POINTS.put(key, String(next));
