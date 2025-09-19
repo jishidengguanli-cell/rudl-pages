@@ -1,12 +1,10 @@
 // functions/d/[code].ts
 // 下載頁：多語系（zh-TW / en / zh-CN / ru / vi）+ 語言切換器 + iOS 引導面板
-import { deductForOwner } from '../_points.js';
 export interface Env { LINKS: KVNamespace; }
 
 export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const code = String(ctx.params?.code || "");
   if (!code) return resp404("Invalid code");
-  
 
   const raw = await ctx.env.LINKS.get(`link:${code}`);
   if (!raw) return resp404("Not Found");
@@ -23,7 +21,8 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     createdAt?: number;
   };
 
-  let rec: Rec; try { rec = JSON.parse(raw); } catch { return resp404("Broken record"); }
+  let rec: Rec;
+  try { rec = JSON.parse(raw); } catch { return resp404("Broken record"); }
 
   const hasApk = !!rec.apk_key;
   const hasIpa = !!rec.ipa_key;
@@ -43,7 +42,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   // 語系選單（切換即帶 ?lang=xx）
   const switcher = renderLangSwitcher(code, reqLang);
 
-  // 下載按鈕走 /dl 以統計
+  // 下載按鈕走 /dl 以統計；頁面上先做扣點檢查（/api/dl/bill），成功才導向 /dl
   const hrefApk = `/dl/${encodeURIComponent(rec.code)}?p=apk`;
   const hrefIos = `/dl/${encodeURIComponent(rec.code)}?p=ios`;
 
@@ -149,99 +148,74 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 
   <script>
   (function(){
-    // 切換語系（錨點已是 /d/${code}?lang=xx，所以不需 JS）
-    // iOS 引導：
+    // iOS 引導
     var installBtn = document.getElementById('btn-ios');
-    if(!installBtn) return;
+    if (installBtn) {
+      var devName = installBtn.getAttribute('data-dev') || (window.__DEV_NAME__ || '${h(devName)}');
+      var devEl = document.getElementById('devName'); if (devEl) devEl.textContent = devName;
 
-    var devName = installBtn.getAttribute('data-dev') || (window.__DEV_NAME__ || '${h(devName)}');
-    var devEl = document.getElementById('devName'); if (devEl) devEl.textContent = devName;
+      var schemeFromGlobal = (window.__APP_SCHEME__ || '');
+      var openBtn = document.getElementById('btnOpenApp');
+      if (schemeFromGlobal) openBtn.setAttribute('data-scheme', schemeFromGlobal);
+      if (!openBtn.getAttribute('data-scheme')) openBtn.style.display = 'none';
 
-    var schemeFromGlobal = (window.__APP_SCHEME__ || '');
-    var openBtn = document.getElementById('btnOpenApp');
-    if (schemeFromGlobal) openBtn.setAttribute('data-scheme', schemeFromGlobal);
-    if (!openBtn.getAttribute('data-scheme')) openBtn.style.display = 'none';
+      var mask  = document.getElementById('iosGuideMask');
+      var guide = document.getElementById('iosGuide');
 
-    var mask  = document.getElementById('iosGuideMask');
-    var guide = document.getElementById('iosGuide');
-
-    function isiOS(){ return /iP(hone|od|ad)/.test(navigator.userAgent); }
-    function iOSMajor(){
-      var m = navigator.userAgent.match(/OS (\\d+)_/i);
-      return m ? parseInt(m[1],10) : null;
-    }
-    function setPath(){
-      var v = iOSMajor() || 17;
-      var path;
-      if (v >= 16) path = '${h(t("path16"))}';
-      else if (v >= 14) path = '${h(t("path14"))}';
-      else path = '${h(t("pathOld"))}';
-      document.getElementById('iosPath').innerHTML = '${h(t("detected"))} ' + v + '<br/>' + path;
-    }
-    function showGuide(){ setPath(); guide.style.display='block'; mask.style.display='block'; }
-    function hideGuide(){ guide.style.display='none'; mask.style.display='none'; }
-
-    document.getElementById('btnCopyDev').addEventListener('click', function(){
-      try { navigator.clipboard.writeText(devName); } catch(e){}
-    });
-    openBtn && openBtn.addEventListener('click', function(){
-      var scheme = openBtn.getAttribute('data-scheme') || '';
-      if (!scheme) return;
-      location.href = scheme;
-    });
-    document.getElementById('btnCloseGuide').addEventListener('click', hideGuide);
-    mask.addEventListener('click', hideGuide);
-
-    installBtn.addEventListener('click', function(){
-      if (!isiOS()) return;
-      setTimeout(showGuide, 600);
-    });
-
-    // 將頁面上的兩顆下載按鈕，改成：先扣點成功，才真的前往 /dl
-  var code = (location.pathname.split('/').pop() || '').trim(); // 也可用後端模板注入
-  function bindBilling(btnId, os){
-    var el = document.getElementById(btnId);
-    if (!el) return;
-    el.addEventListener('click', async function(e){
-      // iOS 引導面板如果你還要顯示，可以在這裡先處理；扣點在真正要跳轉前做
-      e.preventDefault();
-      el.disabled = true; el.textContent = '處理中…';
-
-      try{
-        const r = await fetch('/api/dl/bill', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ code: code, os: os })
-        });
-
-        if (r.status === 200) {
-          // 扣成功 → 真的前往 /dl 讓它處理 302 或檔案串流
-          location.href = el.getAttribute('href');
-          return;
-        }
-        if (r.status === 402) {
-          alert('點數不足，請先充值。');
-          el.disabled = false; el.textContent = (os==='apk' ? '下載 Android' : '安裝 iOS');
-          return;
-        }
-        // 其他錯誤
-        alert('下載前置檢查失敗，請稍後重試。');
-      } catch (err){
-        alert('網路錯誤，請稍後重試。');
-      } finally {
-        // 若已跳轉就不會執行到這；若失敗就把按鈕還原
+      function isiOS(){ return /iP(hone|od|ad)/.test(navigator.userAgent); }
+      function iOSMajor(){ var m = navigator.userAgent.match(/OS (\\d+)_/i); return m ? parseInt(m[1],10) : null; }
+      function setPath(){
+        var v = iOSMajor() || 17;
+        var path;
+        if (v >= 16) path = '${h(t("path16"))}';
+        else if (v >= 14) path = '${h(t("path14"))}';
+        else path = '${h(t("pathOld"))}';
+        document.getElementById('iosPath').innerHTML = '${h(t("detected"))} ' + v + '<br/>' + path;
       }
-    });
-  }
-  bindBilling('btn-android', 'apk');
-  bindBilling('btn-ios', 'ipa');
+      function showGuide(){ setPath(); guide.style.display='block'; mask.style.display='block'; }
+      function hideGuide(){ guide.style.display='none'; mask.style.display='none'; }
+
+      document.getElementById('btnCopyDev').addEventListener('click', function(){ try { navigator.clipboard.writeText(devName); } catch(e){} });
+      openBtn && openBtn.addEventListener('click', function(){ var s=openBtn.getAttribute('data-scheme')||''; if(s) location.href=s; });
+      document.getElementById('btnCloseGuide').addEventListener('click', hideGuide);
+      mask.addEventListener('click', hideGuide);
+
+      installBtn.addEventListener('click', function(){ if (!isiOS()) return; setTimeout(showGuide, 600); });
+    }
+
+    // 下載前扣點：成功才真的導向 /dl
+    var code = (location.pathname.split('/').pop() || '').trim();
+    function bindBilling(btnId, os){
+      var el = document.getElementById(btnId);
+      if (!el) return;
+      el.addEventListener('click', async function(e){
+        e.preventDefault();
+        el.disabled = true; var ori = el.textContent; el.textContent = '...';
+        try{
+          var r = await fetch('/api/dl/bill', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ code: code, os: os })
+          });
+          if (r.status === 200) { location.href = el.getAttribute('href'); return; }
+          if (r.status === 402) { alert('Insufficient points. Please recharge.'); }
+          else { alert('Download check failed. Please retry later.'); }
+        }catch(_){ alert('Network error. Please retry later.'); }
+        finally{ el.disabled = false; el.textContent = ori; }
+      });
+    }
+    bindBilling('btn-android', 'apk');
+    bindBilling('btn-ios', 'ipa');
   })();
   </script>
 </body>
 </html>`;
 
-  return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }});
+  return new Response(html, {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }
+  });
 };
 
 // ---- i18n ----

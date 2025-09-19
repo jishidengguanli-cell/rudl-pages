@@ -15,6 +15,8 @@ function j(obj: any, status = 200) {
   });
 }
 
+const n = (v?: string | null) => Number.parseInt(v || "0", 10) || 0;
+
 export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   try {
     const sid = readCookie(ctx.request, "sid");
@@ -22,6 +24,8 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     if (!me) return j({ error: "unauthorized" }, 401);
 
     const LINKS = ctx.env.LINKS;
+
+    // 以 UTC 日期做 key（你的 /dl 統計若改成時區，這裡記得一致）
     const todayKey = new Date().toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD
 
     // 讀取此使用者所有短碼
@@ -31,13 +35,18 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 
     const items: any[] = [];
     for (const code of codes) {
+      // link 主紀錄
       const v = await LINKS.get(`link:${code}`);
       if (!v) continue;
 
       let rec: any;
-      try { rec = JSON.parse(v); } catch { continue; }
+      try {
+        rec = JSON.parse(v);
+      } catch {
+        continue;
+      }
 
-      // 讀統計（整體 + 今日；另附上按平台的統計，未來要用得到）
+      // 讀統計（整體 + 今日；另附上按平台的統計）
       const [
         totalAll,
         todayAll,
@@ -52,13 +61,22 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
         LINKS.get(`cnt:${code}:ipa:day:${todayKey}`),
       ]);
 
+      const apk_total = n(totalApk);
+      const ipa_total = n(totalIpa);
+      const apk_today = n(todayApk);
+      const ipa_today = n(todayIpa);
+
+      // 「總計/今日」優先使用平台加總；若你也在維護 cnt:code:total，就取兩者較大者，避免不同步造成「卡在 500」或總數小於平台總和。
+      const total = Math.max(n(totalAll), apk_total + ipa_total);
+      const today = Math.max(n(todayAll), apk_today + ipa_today);
+
       rec.stats = {
-        total: n(totalAll),
-        today: n(todayAll),
-        apk_total: n(totalApk),
-        ipa_total: n(totalIpa),
-        apk_today: n(todayApk),
-        ipa_today: n(todayIpa),
+        total,
+        today,
+        apk_total,
+        ipa_total,
+        apk_today,
+        ipa_today,
       };
 
       items.push(rec);
@@ -72,7 +90,3 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     return j({ error: "internal", detail: String(e?.message || e) }, 500);
   }
 };
-
-function n(v?: string | null) {
-  return Number.parseInt(v || "0", 10) || 0;
-}
