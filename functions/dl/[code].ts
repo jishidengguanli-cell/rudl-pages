@@ -1,8 +1,8 @@
 // functions/dl/[code].ts
-// /dl/:code?p=apk | /dl/:code?p=ios
-// 說明：本檔只做「讀 link → 組目標 → 302 轉向」
-// ＊扣點與 1 分鐘去重已移到 POST /api/dl/bill
-// ＊任何統計（cnt<code>*）也在 /api/dl/bill 成功時遞增
+// /dl/:code?p=apk | /dl/:code?p=ios (/ipa)
+// 說明：只做「讀 link → 組目標 → 302 轉向」
+// ＊扣點與統計交由 POST /api/dl/bill 處理
+// ＊這裡會在背景 fire-and-forget 觸發 /api/dl/bill，並把 ios 正規化成 ipa
 
 export interface Env {
   LINKS: KVNamespace;
@@ -10,14 +10,13 @@ export interface Env {
 
 export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const { request, env, params } = ctx;
-
   const url  = new URL(request.url);
   const code = String(params?.code || "").trim();
-  if (!code) return text("Invalid code", 400);
+  if (!code) return plain("Invalid code", 400);
 
   // 讀取 link 記錄
   const raw = await env.LINKS.get(`link:${code}`);
-  if (!raw) return text("Not Found", 404);
+  if (!raw) return plain("Not Found", 404);
 
   type Rec = {
     code: string;
@@ -25,62 +24,64 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     version?: string;
     bundle_id?: string;
     lang?: string;
-    apk_key?: string;     // R2/CDN 上的檔案 key（如 android/xxx.apk）
-    ipa_key?: string;     // R2/CDN 上的檔案 key（如 ios/xxx.ipa）
-    owner?: string;       // 擁有者 UID（僅用於其他 API；此檔不做點數與計數）
-    uid?: string; userId?: string; ownerUid?: string;
-    apk_url?: string;     // 若你有預先存完整網址，也可用這個
-    ipa_url?: string;     // 同上
+    apk_key?: string;   // 例如 android/xxx.apk
+    ipa_key?: string;   // 例如 ios/xxx.ipa
+    apk_url?: string;   // 若已存完整網址也可用
+    ipa_url?: string;
   };
 
   let rec: Rec;
   try {
     rec = JSON.parse(raw);
   } catch {
-    return text("Broken record", 500);
+    return plain("Broken record", 500);
   }
 
-  // 解析平台與目的地
-  const p = url.searchParams.get("p"); // 'apk' | 'ios'
+  // ---- 解析平台 ----
+  let p = (url.searchParams.get("p") || "").toLowerCase(); // 'apk' | 'ios' | 'ipa' | ''
+  if (!p) {
+    // 若只上傳了其中一種檔案，沒帶 p 時自動推論
+    if (rec.apk_key && !rec.ipa_key) p = "apk";
+    else if (!rec.apk_key && rec.ipa_key) p = "ios";
+  }
+  // ios 正規化成 ipa（/api/dl/bill 與統計用 'ipa' 比較一致）
+  const plat = p === "apk" ? "apk" : "ipa";
+
+  // ---- 找轉址目標 ----
   let destination = "";
 
-  if (p === "apk") {
-    // Android：直接給檔案網址
-    if (rec.apk_url) {
-      destination = rec.apk_url;
-    } else if (rec.apk_key) {
-      destination = `https://cdn.rudownload.win/${encodeURI(rec.apk_key)}`;
-    } else {
-      return text("APK Not Found", 404);
-    }
-  } else if (p === "ios" || p === "ipa") {
-    // iOS：走 itms-services + manifest（由 /m/:code 提供）
-    if (rec.ipa_url) {
-      // 假如你有直接存 plist 連結，也可改用 rec.ipa_url
-      destination = rec.ipa_url;
-    } else if (rec.ipa_key) {
+  if (plat === "apk") {
+    if (rec.apk_url) destination = rec.apk_url;
+    else if (rec.apk_key) destination = cdn(rec.apk_key);
+    else return plain("APK Not Found", 404);
+  } else {
+    // iOS 走 itms-services，指向 /m/:code（由 manifest 產出 plist）
+    if (rec.ipa_url) destination = rec.ipa_url;
+    else if (rec.ipa_key) {
       const manifest = `${url.origin}/m/${encodeURIComponent(code)}`;
       destination = `itms-services://?action=download-manifest&url=${encodeURIComponent(manifest)}`;
-    } else {
-      return text("IPA Not Found", 404);
-    }
-  } else {
-    return text("Missing p=apk|ios", 400);
+    } else return plain("IPA Not Found", 404);
   }
 
-  // 302 轉向到真正目的地
+  // ---- 背景通知 /api/dl/bill 做扣點與統計（不阻塞下載）----
+  // 這裡只傳 code 與 plat（apk/ipa），其他 dedupe/扣點/計數請在 /api/dl/bill 處理
+  ctx.waitUntil(postBill(url, code, plat));
+
+  // ---- 302 轉向到真正目的地 ----
   return new Response(null, {
     status: 302,
-    headers: {
-      Location: destination,
-      ...noStore(),
-    },
+    headers: { Location: destination, ...noStore() },
   });
 };
 
 /* ---------------- helpers ---------------- */
 
-function text(msg: string, status = 200) {
+function cdn(key: string) {
+  // 你的 R2 自訂網域；若未來改動，只需改這裡
+  return `https://cdn.rudownload.win/${encodeURI(key.replace(/^\/+/, ""))}`;
+}
+
+function plain(msg: string, status = 200) {
   return new Response(msg, {
     status,
     headers: { "content-type": "text/plain; charset=utf-8", ...noStore() },
@@ -92,4 +93,20 @@ function noStore() {
     "cache-control": "no-store, no-cache, must-revalidate, max-age=0",
     pragma: "no-cache",
   };
+}
+
+/** fire-and-forget 呼叫 /api/dl/bill；任何錯誤都吞掉避免影響下載 */
+async function postBill(originUrl: URL, code: string, plat: "apk" | "ipa") {
+  try {
+    const endpoint = new URL("/api/dl/bill", originUrl).toString();
+    await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, plat }),
+      // 禁止快取：確保每次請求都會到達 function
+      cf: { cacheTtl: 0, cacheEverything: false } as any,
+    });
+  } catch {
+    // 靜默失敗，不影響轉向
+  }
 }
