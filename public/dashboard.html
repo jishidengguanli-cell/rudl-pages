@@ -318,7 +318,11 @@ async function loadList() {
   tbody.innerHTML = "";
 
   try {
-    const r = await fetch("/api/links/list", { credentials: "include" });
+    const r = await fetch(`/api/links/list?ts=${Date.now()}`, {
+      credentials: "include",
+      cache: "no-store"
+    });
+
     const txt = await r.text();
     let data;
     try { data = JSON.parse(txt); }
