@@ -3,11 +3,12 @@
 import { readCookie, verifySession } from "./_lib/auth";
 
 const PLAN_MAP = {
-  p200:   { points: 200,   priceCents: 1500   },
-  p500:   { points: 500,   priceCents: 3500   },
-  p2000:  { points: 2000,  priceCents: 12000  },
-  p5000:  { points: 5000,  priceCents: 30000  },
-  p15000: { points: 15000, priceCents: 85000  },
+  p500:   { points: 500,   priceCents: 100   },
+  p3000:   { points: 3000,   priceCents: 500   },
+  p20000:  { points: 20000,  priceCents: 1500  },
+  p50000:  { points: 50000,  priceCents: 3500  },
+  p150000: { points: 150000, priceCents: 10000  },
+  p500000: { points: 500000, priceCents: 30000  },
 };
 
 export async function onRequestPost({ request, env }) {
