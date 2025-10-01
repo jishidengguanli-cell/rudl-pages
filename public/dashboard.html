@@ -224,6 +224,7 @@
 <div class="modal" id="modal-edit">
   <div class="panel">
     <div class="grid-2">
+      <input type="hidden" id="edit-code" name="code" value="">
       <div>
         <h3 style="margin:0 0 8px">編輯分發（顯示用欄位）</h3>
         <p class="small">這些欄位僅影響下載頁顯示；iOS 安裝資訊仍以 IPA 內的 Info.plist 為準。</p>
@@ -880,34 +881,80 @@ function parseBinaryPlist(buf) {
   window.PointsUI = Object.assign(window.PointsUI || {}, { refresh });
 })();
 
-  (function(){
-  // 你原本應該有「目前正在編輯的短碼 code」的來源
-  // 這裡提供一個取得方式：從當前編輯表單或 URL 上抓
-  // 如果你有既有全域變數/狀態，直接改 getEditingCode() 內容即可。
+  <script>
+(function(){
+  // ------------- 取得目前正在編輯的 code -------------
   function getEditingCode() {
-    // 1) 若你在編輯卡片上有個 input[name=code]
-    const el = document.querySelector('input[name="code"]');
-    if (el && el.value) return el.value.trim();
-
-    // 2) 或者從 URL 參數 ?code=xxx 取得
+    // 0) 優先讀全域變數（按編輯時會設）
+    if (window.__editingCode && typeof window.__editingCode === "string") {
+      return window.__editingCode.trim();
+    }
+    // 1) 再讀隱藏欄位 #edit-code
+    const input = document.getElementById("edit-code");
+    if (input && input.value) return input.value.trim();
+    // 2) URL 參數保底
     const url = new URL(location.href);
     const c = url.searchParams.get("code");
     if (c) return c.trim();
-
-    // 3) 如果你的編輯 UI 會選中某一筆，可改成讀取你現有的選中狀態
-    // 這裡暫時回傳空字串避免誤操作
     return "";
   }
 
+  // ------------- 每次點「編輯」：設定 code & 清空檔案欄位 -------------
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button, a");
+    if (!btn) return;
+
+    // 你的按鈕文字就是「編輯」，或有 .btn-edit class 都能命中
+    const isEditBtn =
+      btn.classList.contains("btn-edit") ||
+      (btn.textContent && btn.textContent.trim() === "編輯");
+
+    if (!isEditBtn) return;
+
+    // 從所在列解析 code（優先 data-*，其次從該列的 /d/:code 連結抓）
+    let code = btn.dataset.code || "";
+    const row = btn.closest("tr");
+
+    if (!code && row) {
+      // 表格右邊有「下載頁」連結，例如 https://app.rudownload.win/d/xRbQ
+      const a = row.querySelector('a[href*="/d/"]');
+      if (a && a.href) {
+        const m = a.href.match(/\/d\/([A-Za-z0-9_-]+)/);
+        if (m) code = m[1];
+      }
+      // 若你在 <tr> 上有 data-code 也吃
+      if (!code && row.dataset.code) code = row.dataset.code;
+    }
+
+    if (code) {
+      // 記到全域 & 隱藏欄位
+      window.__editingCode = code;
+      const hidden = document.getElementById("edit-code");
+      if (hidden) hidden.value = code;
+
+      // 清空檔案選擇器與進度文字
+      const fileApk = document.getElementById("fileApk");
+      const fileIpa = document.getElementById("fileIpa");
+      const progApk = document.getElementById("progressApk");
+      const progIpa = document.getElementById("progressIpa");
+
+      if (fileApk) fileApk.value = "";
+      if (fileIpa) fileIpa.value = "";
+      if (progApk) progApk.textContent = "";
+      if (progIpa) progIpa.textContent = "";
+    }
+  }, true); // 用捕獲階段，確保在其他 handler 前就把 code 設好
+
+  // ------------- 以下為「上傳並覆蓋」的流程（同之前，但改用新的 getEditingCode） -------------
+
   async function presignAndPut(file, folderHint) {
-    // 1) 向 /api/upload/init 取得預簽名 URL
     const initResp = await fetch("/api/upload/init", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         filename: file.name,
-        folder: folderHint,           // "android" 或 "ios"
-        contentType: file.type || (file.name.endsWith(".apk")
+        folder: folderHint,
+        contentType: file.type || (file.name.toLowerCase().endsWith(".apk")
           ? "application/vnd.android.package-archive"
           : "application/octet-stream")
       }),
@@ -917,7 +964,6 @@ function parseBinaryPlist(buf) {
 
     const { uploadUrl, key, contentType } = initData;
 
-    // 2) PUT 到 R2
     const putResp = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "content-type": contentType || file.type || "application/octet-stream" },
@@ -944,7 +990,7 @@ function parseBinaryPlist(buf) {
     el.textContent = busy ? (text || "處理中…") : "";
   }
 
-  // 綁定事件：APK
+  // APK 覆蓋
   const btnApk = document.getElementById("btnUploadApk");
   const fileApk = document.getElementById("fileApk");
   const progApk = document.getElementById("progressApk");
@@ -965,7 +1011,6 @@ function parseBinaryPlist(buf) {
         await replaceOnServer(code, "apk", key);
         setBusy(progApk, false);
         alert("APK 覆蓋完成");
-        // 你若有列表或右側資訊，可在這裡呼叫你原本的 refresh()
       } catch (e) {
         setBusy(progApk, false);
         alert("APK 覆蓋失敗：" + (e?.message || e));
@@ -973,7 +1018,7 @@ function parseBinaryPlist(buf) {
     });
   }
 
-  // 綁定事件：IPA
+  // IPA 覆蓋
   const btnIpa = document.getElementById("btnUploadIpa");
   const fileIpa = document.getElementById("fileIpa");
   const progIpa = document.getElementById("progressIpa");
@@ -994,7 +1039,6 @@ function parseBinaryPlist(buf) {
         await replaceOnServer(code, "ipa", key);
         setBusy(progIpa, false);
         alert("IPA 覆蓋完成");
-        // 視需要刷新面板
       } catch (e) {
         setBusy(progIpa, false);
         alert("IPA 覆蓋失敗：" + (e?.message || e));
@@ -1002,4 +1046,5 @@ function parseBinaryPlist(buf) {
     });
   }
 })();
+
 </script>
