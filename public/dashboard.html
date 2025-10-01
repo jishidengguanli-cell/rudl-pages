@@ -891,7 +891,10 @@ function parseBinaryPlist(buf) {
 
  
 (function(){
-  // 取得目前正在編輯的 code
+  // ------- 行為開關：true = 只有「成功覆蓋」才解鎖另一側；失敗時保持鎖定（重新按一次「編輯」會重置） -------
+  const STRICT_UNLOCK_ON_SUCCESS_ONLY = true;
+
+  // ------- 取得目前正在編輯的 code -------
   function getEditingCode() {
     if (window.__editingCode && typeof window.__editingCode === "string") {
       return window.__editingCode.trim();
@@ -903,13 +906,51 @@ function parseBinaryPlist(buf) {
     return c ? c.trim() : "";
   }
 
-  // 點「編輯」時：設定 code 並清空檔案欄位＋進度條
+  // ------- 便利存取 DOM -------
+  const el = {
+    fileApk:  () => document.getElementById("fileApk"),
+    fileIpa:  () => document.getElementById("fileIpa"),
+    btnApk:   () => document.getElementById("btnUploadApk"),
+    btnIpa:   () => document.getElementById("btnUploadIpa"),
+    barApk:   () => document.getElementById("barApk"),
+    barIpa:   () => document.getElementById("barIpa"),
+    progApk:  () => document.getElementById("progressApk"),
+    progIpa:  () => document.getElementById("progressIpa"),
+  };
+
+  // ------- 啟用/停用兩側元件 -------
+  function setEnabledApk(v) {
+    const b = el.btnApk();  const f = el.fileApk();
+    if (b) b.disabled = !v;
+    if (f) f.disabled = !v;
+  }
+  function setEnabledIpa(v) {
+    const b = el.btnIpa();  const f = el.fileIpa();
+    if (b) b.disabled = !v;
+    if (f) f.disabled = !v;
+  }
+  function resetEditorsUI() {
+    // 每次開「編輯」都重置：清檔案/進度 & 兩側都解除鎖定
+    const fA = el.fileApk(), fI = el.fileIpa();
+    const bA = el.barApk(),  bI = el.barIpa();
+    const pA = el.progApk(), pI = el.progIpa();
+    if (fA) fA.value = "";
+    if (fI) fI.value = "";
+    if (bA) bA.value = 0;
+    if (bI) bI.value = 0;
+    if (pA) pA.textContent = "";
+    if (pI) pI.textContent = "";
+    setEnabledApk(true);
+    setEnabledIpa(true);
+  }
+
+  // ------- 監聽「編輯」按鈕：設定 code & 重置 UI -------
   document.addEventListener("click", (ev) => {
     const btn = ev.target.closest("button, a");
     if (!btn) return;
-    const isEditBtn = btn.classList.contains("btn-edit") ||
-      (btn.textContent && btn.textContent.trim() === "編輯");
-    if (!isEditBtn) return;
+    const isEdit = btn.classList.contains("btn-edit") ||
+                   (btn.textContent && btn.textContent.trim() === "編輯");
+    if (!isEdit) return;
 
     let code = btn.dataset.code || "";
     const row = btn.closest("tr");
@@ -925,25 +966,11 @@ function parseBinaryPlist(buf) {
       window.__editingCode = code;
       const hidden = document.getElementById("edit-code");
       if (hidden) hidden.value = code;
-
-      // 清空檔案與進度
-      const fileApk = document.getElementById("fileApk");
-      const fileIpa = document.getElementById("fileIpa");
-      const barApk  = document.getElementById("barApk");
-      const barIpa  = document.getElementById("barIpa");
-      const progApk = document.getElementById("progressApk");
-      const progIpa = document.getElementById("progressIpa");
-
-      if (fileApk) fileApk.value = "";
-      if (fileIpa) fileIpa.value = "";
-      if (barApk)  barApk.value  = 0;
-      if (barIpa)  barIpa.value  = 0;
-      if (progApk) progApk.textContent = "";
-      if (progIpa) progIpa.textContent = "";
+      resetEditorsUI();
     }
   }, true);
 
-  // 1) 先向 /api/upload/init 取預簽名 URL
+  // ------- /api/upload/init 取預簽名 URL -------
   async function presign(file, folderHint) {
     const resp = await fetch("/api/upload/init", {
       method: "POST",
@@ -961,13 +988,12 @@ function parseBinaryPlist(buf) {
     return data; // { uploadUrl, key, contentType }
   }
 
-  // 2) 用 XHR PUT 上傳（有進度）
+  // ------- XHR PUT（有進度） -------
   function xhrPutFile(uploadUrl, file, contentType, onProgress) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("PUT", uploadUrl, true);
       if (contentType) xhr.setRequestHeader("content-type", contentType);
-
       xhr.upload.onprogress = (e) => {
         if (!e || !e.lengthComputable) return;
         const percent = Math.floor((e.loaded / e.total) * 100);
@@ -982,19 +1008,20 @@ function parseBinaryPlist(buf) {
     });
   }
 
-  // 3) 通知後端取代舊 key
+  // ------- 通知後端替換 -------
   async function replaceOnServer(code, platform, key) {
     const r = await fetch("/api/upload/replace", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ code, platform, key }),
-      credentials: "same-origin", // 保險：確保 cookie 帶上
+      credentials: "same-origin",
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data?.error || "replace failed");
     return data;
   }
 
+  // ------- UI helpers -------
   function setPercent(barEl, textEl, p, hint) {
     if (barEl) barEl.value = p;
     if (textEl) textEl.textContent = (hint ? hint + " " : "") + p + "%";
@@ -1004,11 +1031,11 @@ function parseBinaryPlist(buf) {
     textEl.textContent = busy ? (hint || "處理中…") : "";
   }
 
-  // 綁定 APK
-  const btnApk = document.getElementById("btnUploadApk");
-  const fileApk = document.getElementById("fileApk");
-  const barApk  = document.getElementById("barApk");
-  const progApk = document.getElementById("progressApk");
+  // ------- 綁定 APK -------
+  const btnApk = el.btnApk();
+  const fileApk = el.fileApk();
+  const barApk  = el.barApk();
+  const progApk = el.progApk();
 
   if (btnApk && fileApk) {
     btnApk.addEventListener("click", async () => {
@@ -1019,9 +1046,11 @@ function parseBinaryPlist(buf) {
         if (!file) return alert("請先選擇 APK 檔案");
         if (!file.name.toLowerCase().endsWith(".apk")) return alert("檔案必須是 .apk");
 
-        btnApk.disabled = true;
-        setPercent(barApk, progApk, 0, "上傳中…");
+        // 自己先禁用，並「鎖住另一側（IPA）」直到成功
+        setEnabledApk(false);
+        setEnabledIpa(false);
 
+        setPercent(barApk, progApk, 0, "上傳中…");
         const { uploadUrl, key, contentType } = await presign(file, "android");
         await xhrPutFile(uploadUrl, file, contentType || file.type || "application/octet-stream",
           (p) => setPercent(barApk, progApk, p, "上傳中…")
@@ -1030,23 +1059,30 @@ function parseBinaryPlist(buf) {
         setBusy(progApk, true, "覆蓋中…");
         await replaceOnServer(code, "apk", key);
 
+        // 成功：兩側解鎖（或只解鎖另一側，視需要）
         setBusy(progApk, false);
         setPercent(barApk, progApk, 100, "完成");
+        setEnabledApk(true);
+        setEnabledIpa(true); // 嚴格模式：只有成功才會走到這裡解鎖另一側
         alert("APK 覆蓋完成");
       } catch (e) {
         setBusy(progApk, false);
         alert("APK 覆蓋失敗：" + (e?.message || e));
-      } finally {
-        btnApk.disabled = false;
+        // 失敗時是否解鎖另一側？
+        if (!STRICT_UNLOCK_ON_SUCCESS_ONLY) {
+          setEnabledIpa(true);
+        }
+        // 自己要解鎖，否則使用者沒法重試
+        setEnabledApk(true);
       }
     });
   }
 
-  // 綁定 IPA
-  const btnIpa = document.getElementById("btnUploadIpa");
-  const fileIpa = document.getElementById("fileIpa");
-  const barIpa  = document.getElementById("barIpa");
-  const progIpa = document.getElementById("progressIpa");
+  // ------- 綁定 IPA -------
+  const btnIpa = el.btnIpa();
+  const fileIpa = el.fileIpa();
+  const barIpa  = el.barIpa();
+  const progIpa = el.progIpa();
 
   if (btnIpa && fileIpa) {
     btnIpa.addEventListener("click", async () => {
@@ -1057,9 +1093,11 @@ function parseBinaryPlist(buf) {
         if (!file) return alert("請先選擇 IPA 檔案");
         if (!file.name.toLowerCase().endsWith(".ipa")) return alert("檔案必須是 .ipa");
 
-        btnIpa.disabled = true;
-        setPercent(barIpa, progIpa, 0, "上傳中…");
+        // 自己先禁用，並「鎖住另一側（APK）」直到成功
+        setEnabledIpa(false);
+        setEnabledApk(false);
 
+        setPercent(barIpa, progIpa, 0, "上傳中…");
         const { uploadUrl, key, contentType } = await presign(file, "ios");
         await xhrPutFile(uploadUrl, file, contentType || file.type || "application/octet-stream",
           (p) => setPercent(barIpa, progIpa, p, "上傳中…")
@@ -1068,14 +1106,19 @@ function parseBinaryPlist(buf) {
         setBusy(progIpa, true, "覆蓋中…");
         await replaceOnServer(code, "ipa", key);
 
+        // 成功：兩側解鎖
         setBusy(progIpa, false);
         setPercent(barIpa, progIpa, 100, "完成");
+        setEnabledIpa(true);
+        setEnabledApk(true); // 嚴格模式：只有成功才會走到這裡解鎖另一側
         alert("IPA 覆蓋完成");
       } catch (e) {
         setBusy(progIpa, false);
         alert("IPA 覆蓋失敗：" + (e?.message || e));
-      } finally {
-        btnIpa.disabled = false;
+        if (!STRICT_UNLOCK_ON_SUCCESS_ONLY) {
+          setEnabledApk(true);
+        }
+        setEnabledIpa(true);
       }
     });
   }
