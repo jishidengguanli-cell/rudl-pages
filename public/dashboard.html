@@ -224,7 +224,6 @@
 <div class="modal" id="modal-edit">
   <div class="panel">
     <div class="grid-2">
-      <input type="hidden" id="edit-code" name="code" value="">
       <div>
         <h3 style="margin:0 0 8px">編輯分發（顯示用欄位）</h3>
         <p class="small">這些欄位僅影響下載頁顯示；iOS 安裝資訊仍以 IPA 內的 Info.plist 為準。</p>
@@ -255,25 +254,34 @@
     <label>Bundle ID（顯示用）</label>
     <input id="e-bundle" type="text" placeholder="例如：com.example.app" />
     
+    <input type="hidden" id="edit-code" name="code" value="">
+    
     <section id="replace-section" style="margin-top:16px; border-top:1px dashed #444; padding-top:12px;">
-  <h3 style="margin:0 0 8px;">重新上傳並覆蓋安裝包</h3>
+      <h3 style="margin:0 0 8px;">重新上傳並覆蓋安裝包</h3>
+    
+      <!-- APK -->
+      <div style="margin-bottom:12px;">
+        <label style="display:block; margin-bottom:6px;">Android (APK)</label>
+        <input id="fileApk" type="file" accept=".apk" />
+        <button id="btnUploadApk" style="margin-left:8px;">上傳並覆蓋 APK</button>
+        <div style="margin-top:6px;">
+          <progress id="barApk" value="0" max="100" style="width:100%;"></progress>
+          <span id="progressApk" style="margin-left:8px; opacity:.8;"></span>
+        </div>
+      </div>
+    
+      <!-- IPA -->
+      <div>
+        <label style="display:block; margin-bottom:6px;">iOS (IPA)</label>
+        <input id="fileIpa" type="file" accept=".ipa" />
+        <button id="btnUploadIpa" style="margin-left:8px;">上傳並覆蓋 IPA</button>
+        <div style="margin-top:6px;">
+          <progress id="barIpa" value="0" max="100" style="width:100%;"></progress>
+          <span id="progressIpa" style="margin-left:8px; opacity:.8;"></span>
+        </div>
+      </div>
+    </section>
 
-  <!-- APK -->
-  <div style="margin-bottom:12px;">
-    <label style="display:block; margin-bottom:6px;">Android (APK)</label>
-    <input id="fileApk" type="file" accept=".apk" />
-    <button id="btnUploadApk" style="margin-left:8px;">上傳並覆蓋 APK</button>
-    <span id="progressApk" style="margin-left:8px; opacity:.8;"></span>
-  </div>
-
-  <!-- IPA -->
-  <div>
-    <label style="display:block; margin-bottom:6px;">iOS (IPA)</label>
-    <input id="fileIpa" type="file" accept=".ipa" />
-    <button id="btnUploadIpa" style="margin-left:8px;">上傳並覆蓋 IPA</button>
-    <span id="progressIpa" style="margin-left:8px; opacity:.8;"></span>
-  </div>
-</section>
 
     <div class="actions">
       <button class="btn red" id="btn-edit-cancel">取消</button>
