@@ -253,6 +253,26 @@
 
     <label>Bundle ID（顯示用）</label>
     <input id="e-bundle" type="text" placeholder="例如：com.example.app" />
+    
+    <section id="replace-section" style="margin-top:16px; border-top:1px dashed #444; padding-top:12px;">
+  <h3 style="margin:0 0 8px;">重新上傳並覆蓋安裝包</h3>
+
+  <!-- APK -->
+  <div style="margin-bottom:12px;">
+    <label style="display:block; margin-bottom:6px;">Android (APK)</label>
+    <input id="fileApk" type="file" accept=".apk" />
+    <button id="btnUploadApk" style="margin-left:8px;">上傳並覆蓋 APK</button>
+    <span id="progressApk" style="margin-left:8px; opacity:.8;"></span>
+  </div>
+
+  <!-- IPA -->
+  <div>
+    <label style="display:block; margin-bottom:6px;">iOS (IPA)</label>
+    <input id="fileIpa" type="file" accept=".ipa" />
+    <button id="btnUploadIpa" style="margin-left:8px;">上傳並覆蓋 IPA</button>
+    <span id="progressIpa" style="margin-left:8px; opacity:.8;"></span>
+  </div>
+</section>
 
     <div class="actions">
       <button class="btn red" id="btn-edit-cancel">取消</button>
@@ -858,5 +878,128 @@ function parseBinaryPlist(buf) {
   window.addEventListener('storage', (e)=>{ if(e.key === 'points:updated') refresh(); });
   // 登入成功後也可手動呼叫 refresh()
   window.PointsUI = Object.assign(window.PointsUI || {}, { refresh });
+})();
+
+  (function(){
+  // 你原本應該有「目前正在編輯的短碼 code」的來源
+  // 這裡提供一個取得方式：從當前編輯表單或 URL 上抓
+  // 如果你有既有全域變數/狀態，直接改 getEditingCode() 內容即可。
+  function getEditingCode() {
+    // 1) 若你在編輯卡片上有個 input[name=code]
+    const el = document.querySelector('input[name="code"]');
+    if (el && el.value) return el.value.trim();
+
+    // 2) 或者從 URL 參數 ?code=xxx 取得
+    const url = new URL(location.href);
+    const c = url.searchParams.get("code");
+    if (c) return c.trim();
+
+    // 3) 如果你的編輯 UI 會選中某一筆，可改成讀取你現有的選中狀態
+    // 這裡暫時回傳空字串避免誤操作
+    return "";
+  }
+
+  async function presignAndPut(file, folderHint) {
+    // 1) 向 /api/upload/init 取得預簽名 URL
+    const initResp = await fetch("/api/upload/init", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        filename: file.name,
+        folder: folderHint,           // "android" 或 "ios"
+        contentType: file.type || (file.name.endsWith(".apk")
+          ? "application/vnd.android.package-archive"
+          : "application/octet-stream")
+      }),
+    });
+    const initData = await initResp.json();
+    if (!initResp.ok) throw new Error(initData?.error || "init failed");
+
+    const { uploadUrl, key, contentType } = initData;
+
+    // 2) PUT 到 R2
+    const putResp = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: { "content-type": contentType || file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!putResp.ok) throw new Error("upload failed");
+
+    return { key };
+  }
+
+  async function replaceOnServer(code, platform, key) {
+    const r = await fetch("/api/upload/replace", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, platform, key }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || "replace failed");
+    return data;
+  }
+
+  function setBusy(el, busy, text) {
+    if (!el) return;
+    el.textContent = busy ? (text || "處理中…") : "";
+  }
+
+  // 綁定事件：APK
+  const btnApk = document.getElementById("btnUploadApk");
+  const fileApk = document.getElementById("fileApk");
+  const progApk = document.getElementById("progressApk");
+
+  if (btnApk && fileApk) {
+    btnApk.addEventListener("click", async () => {
+      try {
+        const code = getEditingCode();
+        if (!code) return alert("找不到目前編輯的分發 code");
+
+        const file = fileApk.files?.[0];
+        if (!file) return alert("請先選擇 APK 檔案");
+        if (!file.name.toLowerCase().endsWith(".apk")) return alert("檔案必須是 .apk");
+
+        setBusy(progApk, true, "上傳中…");
+        const { key } = await presignAndPut(file, "android");
+        setBusy(progApk, true, "覆蓋中…");
+        await replaceOnServer(code, "apk", key);
+        setBusy(progApk, false);
+        alert("APK 覆蓋完成");
+        // 你若有列表或右側資訊，可在這裡呼叫你原本的 refresh()
+      } catch (e) {
+        setBusy(progApk, false);
+        alert("APK 覆蓋失敗：" + (e?.message || e));
+      }
+    });
+  }
+
+  // 綁定事件：IPA
+  const btnIpa = document.getElementById("btnUploadIpa");
+  const fileIpa = document.getElementById("fileIpa");
+  const progIpa = document.getElementById("progressIpa");
+
+  if (btnIpa && fileIpa) {
+    btnIpa.addEventListener("click", async () => {
+      try {
+        const code = getEditingCode();
+        if (!code) return alert("找不到目前編輯的分發 code");
+
+        const file = fileIpa.files?.[0];
+        if (!file) return alert("請先選擇 IPA 檔案");
+        if (!file.name.toLowerCase().endsWith(".ipa")) return alert("檔案必須是 .ipa");
+
+        setBusy(progIpa, true, "上傳中…");
+        const { key } = await presignAndPut(file, "ios");
+        setBusy(progIpa, true, "覆蓋中…");
+        await replaceOnServer(code, "ipa", key);
+        setBusy(progIpa, false);
+        alert("IPA 覆蓋完成");
+        // 視需要刷新面板
+      } catch (e) {
+        setBusy(progIpa, false);
+        alert("IPA 覆蓋失敗：" + (e?.message || e));
+      }
+    });
+  }
 })();
 </script>
