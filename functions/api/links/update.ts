@@ -1,57 +1,95 @@
 // functions/api/links/update.ts
+// 僅更新「顯示用欄位」，不會動到 apk_key / ipa_key（避免把沒更新的包清空）
+//
+// 請求：POST JSON
+// { code, title?, version?, bundle_id?, lang? }
+
 import { readCookie, verifySession, Env as AuthEnv } from "../_lib/auth";
 
 export interface Env extends AuthEnv {
   LINKS: KVNamespace;
 }
 
-function j(obj: any, status = 200) {
-  return new Response(JSON.stringify(obj), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
-}
+type Body = {
+  code?: string;
+  title?: string;
+  version?: string;
+  bundle_id?: string;
+  lang?: string;
+  // 可能被前端誤傳的欄位，一律忽略：
+  apk_key?: any;
+  ipa_key?: any;
+  apk_url?: any;
+  ipa_url?: any;
+};
 
 export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   try {
     const sid = readCookie(ctx.request, "sid");
-    const me  = sid ? await verifySession(ctx.env.SESSION_SECRET, sid) : null;
-    if (!me) return j({ error: "unauthorized" }, 401);
+    const me = sid ? await verifySession(ctx.env.SESSION_SECRET, sid) : null;
+    if (!me) return json({ error: "unauthorized" }, 401);
 
-    const ALLOWED_LANGS = new Set(["en","zh-TW","zh-CN","ru","vi"]);
+    const body = (await ctx.request.json()) as Body;
+    const code = String(body?.code || "").trim();
+    if (!code) return json({ error: "code required" }, 400);
 
-    const body = await ctx.request.json<any>().catch(() => ({}));
-  const code = String(body.code || "").trim();
-  const lang = body.lang ? String(body.lang) : undefined;
-    const title      = body.title      != null ? String(body.title).slice(0, 100) : undefined;
-    const version    = body.version    != null ? String(body.version).slice(0, 50) : undefined;
-    const bundle_id  = body.bundle_id  != null ? String(body.bundle_id).slice(0, 200) : undefined;
+    const linkKey = `link:${code}`;
+    const raw = await ctx.env.LINKS.get(linkKey);
+    if (!raw) return json({ error: "link not found" }, 404);
 
-    if (!code) return j({ error: "code required" }, 400);
+    type Rec = {
+      code: string;
+      owner: string;
+      title?: string;
+      version?: string;
+      bundle_id?: string;
+      lang?: string;
+      apk_key?: string;
+      ipa_key?: string;
+      ipaMeta?: { bundle_id?: string; version?: string };
+      createdAt?: number;
+      updatedAt?: number;
+    };
 
-    const key = `link:${code}`;
-    const raw = await ctx.env.LINKS.get(key);
-    if (!raw) return j({ error: "not_found" }, 404);
+    const rec = JSON.parse(raw) as Rec;
+    if (rec.owner !== me.uid) return json({ error: "forbidden" }, 403);
 
-    const rec = JSON.parse(raw);
-    if (rec.owner !== me.uid) return j({ error: "forbidden" }, 403);
-    
-    if (lang !== undefined) {
-      if (!ALLOWED_LANGS.has(lang)) return j({ error: "unsupported_lang" }, 400);
-      rec.lang = lang;           // 預覽語系
-    }
+    // 只允許更新這些欄位（空字串將被忽略、代表「不變」）
+    const next: Partial<Rec> = {};
+    setIfString(next, "title", body.title);
+    setIfString(next, "version", body.version);
+    setIfString(next, "bundle_id", body.bundle_id);
+    setIfString(next, "lang", body.lang);
 
-    if (title      !== undefined) rec.title      = title;
-    if (version    !== undefined) rec.version    = version;     // 只影響顯示，不影響 iOS 安裝
-    if (bundle_id  !== undefined) rec.bundle_id  = bundle_id;   // 只影響顯示，不影響 iOS 安裝
-    rec.updatedAt = Date.now();
+    // 絕對不允許在這支 API 里影響包的欄位
+    delete (body as any).apk_key;
+    delete (body as any).ipa_key;
+    delete (body as any).apk_url;
+    delete (body as any).ipa_url;
 
-    await ctx.env.LINKS.put(key, JSON.stringify(rec));
-    return j({ ok: true, item: rec });
+    const updated: Rec = {
+      ...rec,
+      ...next,
+      updatedAt: Date.now(),
+    };
+
+    await ctx.env.LINKS.put(linkKey, JSON.stringify(updated));
+    return json({ ok: true, code });
   } catch (e: any) {
-    return j({ error: "internal", detail: String(e?.message || e) }, 500);
+    return json({ error: e?.message || String(e) }, 500);
   }
 };
+
+function setIfString<T extends object>(obj: T, key: keyof any, v: any) {
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (t !== "") (obj as any)[key] = t; // 只有非空字串才覆蓋；空字串代表「不變」
+  }
+}
+
+function json(obj: any, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
