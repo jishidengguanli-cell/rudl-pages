@@ -1,22 +1,16 @@
 // functions/api/upload/replace.ts
-// 用途：在使用 /api/upload/init 取得預簽名 URL 並 PUT 成功後，呼叫本端點
-// 作用：把新 key 寫回 link 記錄（apk_key 或 ipa_key），並刪除舊的 R2 物件（若 key 不同）
+// 目的：前端用 /api/upload/init 直傳到 R2 成功後，再呼叫本端點：
+//       1) 把新 key 寫回 link（apk_key / ipa_key）
+//       2) 若舊 key 與新 key 不同，刪除舊的 R2 物件
 //
-// 權限：僅限 link.owner === 當前登入者 uid
+// 權限：僅 link.owner === 目前登入者
 //
 // 請求：POST JSON
-// {
-//   "code": "abcd12",
-//   "platform": "apk" | "ipa",
-//   "key": "android/1696137600000-XXXX.apk" // 由 /api/upload/init 回傳
-// }
-//
-// 回應：200 { ok: true, code, platform, key, deletedOld?: string }
-//       400/401/403/404/500 對應錯誤
+// { "code": "abcd12", "platform": "apk" | "ipa", "key": "android/1690000000-XXXX.apk" }
 
-import { verifySession } from "../_lib/auth";
+import { readCookie, verifySession, Env as AuthEnv } from "../_lib/auth";
 
-export interface Env {
+export interface Env extends AuthEnv {
   LINKS: KVNamespace;
   FILES_BUCKET: R2Bucket;
 }
@@ -24,17 +18,16 @@ export interface Env {
 type Body = {
   code?: string;
   platform?: "apk" | "ipa";
-  key?: string; // R2 物件 key（非 CDN URL）
+  key?: string; // R2 物件 key（非完整 CDN URL）
 };
 
 export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   try {
-    // 1) 權限檢查
-    const cookie = ctx.request.headers.get("cookie") || "";
-    const me = await verifySession(cookie, ctx.env);
+    // 正確做法：從 cookie 讀 sid，再拿 SESSION_SECRET 驗證
+    const sid = readCookie(ctx.request, "sid");
+    const me = sid ? await verifySession(ctx.env.SESSION_SECRET, sid) : null;
     if (!me) return json({ error: "unauthorized" }, 401);
 
-    // 2) 解析 body
     const body = (await ctx.request.json()) as Body;
     const code = String(body?.code || "").trim();
     const platform = body?.platform;
@@ -46,7 +39,6 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     }
     if (!newKey) return json({ error: "key required" }, 400);
 
-    // 3) 讀取 link
     const linkKey = `link:${code}`;
     const raw = await ctx.env.LINKS.get(linkKey);
     if (!raw) return json({ error: "link not found" }, 404);
@@ -57,7 +49,7 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
       title?: string;
       version?: string;
       bundle_id?: string;
-      apk_key?: string; // 可能是 R2 物件 key 或完整 CDN URL（刪除時要轉回 key）
+      apk_key?: string;
       ipa_key?: string;
       ipaMeta?: { bundle_id?: string; version?: string };
       createdAt?: number;
@@ -67,49 +59,43 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     const rec = JSON.parse(raw) as Rec;
     if (rec.owner !== me.uid) return json({ error: "forbidden" }, 403);
 
-    // 4) 取得舊 key（依平台）
+    // 舊 key → 轉為純物件 key（若歷史資料存過完整 URL）
     const oldKeyRaw = platform === "apk" ? rec.apk_key : rec.ipa_key;
     const oldKey = normalizeObjectKey(oldKeyRaw);
 
-    // 5) 如果新舊相同，就不刪除，僅更新 updatedAt
+    // 刪舊（若與新 key 不同）
     let deletedOld: string | undefined = undefined;
     if (oldKey && oldKey !== newKey) {
-      // 先刪除舊 R2 物件（忽略不存在錯誤）
       try {
         await ctx.env.FILES_BUCKET.delete(oldKey);
         deletedOld = oldKey;
-      } catch (_e) {
-        // 靜默忽略
+      } catch {
+        // 忽略不存在等錯誤
       }
     }
 
-    // 6) 寫回新 key
+    // 寫入新 key
     if (platform === "apk") {
-      rec.apk_key = newKey; // 只存物件 key：android/xxx.apk
+      rec.apk_key = newKey;
     } else {
       rec.ipa_key = newKey;
-      // 可選：這裡你若想重置 ipaMeta，也可以保留/清空；先保留舊值
+      // 視需求可清空 ipaMeta；這裡先保留
       // rec.ipaMeta = undefined;
     }
     rec.updatedAt = Date.now();
 
     await ctx.env.LINKS.put(linkKey, JSON.stringify(rec));
-
     return json({ ok: true, code, platform, key: newKey, deletedOld });
   } catch (e: any) {
     return json({ error: e?.message || String(e) }, 500);
   }
 };
 
-// ---- helpers ----
 function normalizeObjectKey(v?: string): string | undefined {
   if (!v) return undefined;
-  // 若存的是完整 CDN URL，需去掉域名前綴，只留下 bucket 內部 key
-  // 例：https://cdn.rudownload.win/android/xxxxx.apk -> android/xxxxx.apk
   try {
     if (/^https?:\/\//i.test(v)) {
       const u = new URL(v);
-      // 移除開頭的斜線
       return u.pathname.replace(/^\/+/, "");
     }
     return v;
