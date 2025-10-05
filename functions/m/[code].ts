@@ -22,7 +22,10 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   // 優先使用 ipaMeta（自動偵測），其次才用顯示欄位；兩者都沒有才給預設
   const bundle  = meta.bundle_id || rec.bundle_id || `com.unknown.${rec.code}`;
   const version = meta.version    || rec.version    || "1.0";
-  const ipaUrl  = `https://cdn.rudownload.win/${encodeURI(rec.ipa_key)}`;
+
+  // 以 RFC3986 逐段編碼路徑，避免空白/非 ASCII/特殊字元問題
+  const ipaPath = encodeRfc3986Path(rec.ipa_key.replace(/^\/+/, ""));
+  const ipaUrl  = `https://cdn.rudownload.win/${ipaPath}`;
 
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -52,8 +55,10 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 
   return new Response(plist, {
     headers: {
-      "content-type": "application/xml; charset=utf-8",
-      "cache-control": "public, max-age=300"
+      // 關鍵修正：新版 iOS 要更正確的 plist MIME
+      "content-type": "application/x-plist; charset=utf-8",
+      "cache-control": "public, max-age=300",
+      "x-content-type-options": "nosniff"
     }
   });
 };
@@ -62,3 +67,10 @@ function notFound() {
   return new Response("Not Found", { status: 404, headers: { "cache-control": "no-store" } });
 }
 function xml(s: any){ return String(s).replace(/[<&>"]/g, m=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[m])); }
+// RFC3986：逐段編碼，但保留斜線
+function encodeRfc3986Path(path: string) {
+  return path
+    .split("/")
+    .map(seg => encodeURIComponent(seg).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`))
+    .join("/");
+}
