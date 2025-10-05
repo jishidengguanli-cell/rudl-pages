@@ -27,7 +27,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     apk_key?: string;   // 例如 android/xxx.apk
     ipa_key?: string;   // 例如 ios/xxx.ipa
     apk_url?: string;   // 若已存完整網址也可用
-    ipa_url?: string;
+    ipa_url?: string;   // 可能是 itms-services 或外部 plist/ipa
   };
 
   let rec: Rec;
@@ -40,7 +40,6 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   // ---- 解析平台 ----
   let p = (url.searchParams.get("p") || "").toLowerCase(); // 'apk' | 'ios' | 'ipa' | ''
   if (!p) {
-    // 若只上傳了其中一種檔案，沒帶 p 時自動推論
     if (rec.apk_key && !rec.ipa_key) p = "apk";
     else if (!rec.apk_key && rec.ipa_key) p = "ios";
   }
@@ -55,16 +54,13 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     else if (rec.apk_key) destination = cdn(rec.apk_key);
     else return plain("APK Not Found", 404);
   } else {
-    // iOS 走 itms-services，指向 /m/:code（由 manifest 產出 plist）
-    if (rec.ipa_url) destination = rec.ipa_url;
-    else if (rec.ipa_key) {
-      const manifest = `${url.origin}/m/${encodeURIComponent(code)}`;
-      destination = `itms-services://?action=download-manifest&url=${encodeURIComponent(manifest)}`;
-    } else return plain("IPA Not Found", 404);
+    // iOS 一律導 itms-services → /m/:code（避免新版 iOS 因為多層跳轉或直接 .ipa 而失敗）
+    const manifest = `${url.origin}/m/${encodeURIComponent(code)}`;
+    destination = `itms-services://?action=download-manifest&url=${encodeURIComponent(manifest)}`;
+    // 若 rec.ipa_url 本身就是 itms-services 或外部 plist，可在未來視需求判斷覆寫
   }
 
   // ---- 背景通知 /api/dl/bill 做扣點與統計（不阻塞下載）----
-  // 這裡只傳 code 與 plat（apk/ipa），其他 dedupe/扣點/計數請在 /api/dl/bill 處理
   ctx.waitUntil(postBill(url, code, plat));
 
   // ---- 302 轉向到真正目的地 ----
@@ -77,8 +73,13 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 /* ---------------- helpers ---------------- */
 
 function cdn(key: string) {
-  // 你的 R2 自訂網域；若未來改動，只需改這裡
-  return `https://cdn.rudownload.win/${encodeURI(key.replace(/^\/+/, ""))}`;
+  return `https://cdn.rudownload.win/${encodeRfc3986Path(key.replace(/^\/+/, ""))}`;
+}
+function encodeRfc3986Path(path: string) {
+  return path
+    .split("/")
+    .map(seg => encodeURIComponent(seg).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16).toUpperCase()}`))
+    .join("/");
 }
 
 function plain(msg: string, status = 200) {
@@ -103,7 +104,6 @@ async function postBill(originUrl: URL, code: string, plat: "apk" | "ipa") {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ code, plat }),
-      // 禁止快取：確保每次請求都會到達 function
       cf: { cacheTtl: 0, cacheEverything: false } as any,
     });
   } catch {
