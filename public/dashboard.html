@@ -310,32 +310,36 @@ let itemsByCode = {};        // 供編輯彈窗帶入資料
 let currentEditCode = null;  // 目前在編輯哪一筆
 let pendingDeleteCode = null;
 
-// ---- 下載統計欄位正規化（前端相容各版本後端鍵名） ----
+// ---- 下載統計欄位正規化（前端相容多套命名；優先後台命名） ----
 function num(v){ const n=parseInt(v,10); return Number.isFinite(n)?n:0; }
 function extractStats(it){
   const S = it && it.stats ? it.stats : {};
   const P = (S && S.platforms) ? S.platforms : {};
-  // 逐一嘗試多種命名
-  let today = num(S.today ?? it.cnt_today ?? it.today);
-  let total = num(S.total ?? it.cnt_total ?? it.total);
+  const val = (...cands) => {
+    for (const v of cands) {
+      if (v !== undefined && v !== null) {
+        const x = parseInt(v,10);
+        if (Number.isFinite(x)) return x;
+      }
+    }
+    return 0;
+  };
 
-  let apk_today = num(
-    S.apk_today ?? S.android_today ?? S?.apk?.today ?? P?.apk?.today ??
-    it.apk_today ?? it.android_today ?? it.cnt_apk_today ?? it.cnt_android_today
-  );
-  let ipa_today = num(
-    S.ipa_today ?? S.ios_today ?? S?.ipa?.today ?? S?.ios?.today ?? P?.ios?.today ??
-    it.ipa_today ?? it.ios_today ?? it.cnt_ipa_today ?? it.cnt_ios_today
-  );
+  // 1) 後台命名（首選）
+  let today     = val(it.today, S?.today);
+  let total     = val(it.total, S?.total);
+  let apk_today = val(it.apkToday, S?.apk_today, S?.android_today, S?.apk?.today, P?.apk?.today);
+  let ipa_today = val(it.ipaToday, S?.ipa_today,  S?.ios_today,    S?.ipa?.today, S?.ios?.today, P?.ios?.today);
+  let apk_total = val(it.apkTotal, S?.apk_total, S?.android_total, S?.apk?.total, P?.apk?.total);
+  let ipa_total = val(it.ipaTotal, S?.ipa_total, S?.ios_total,     S?.ipa?.total, S?.ios?.total, P?.ios?.total);
 
-  let apk_total = num(
-    S.apk_total ?? S.android_total ?? S?.apk?.total ?? P?.apk?.total ??
-    it.apk_total ?? it.android_total ?? it.cnt_apk_total ?? it.cnt_android_total
-  );
-  let ipa_total = num(
-    S.ipa_total ?? S.ios_total ?? S?.ipa?.total ?? S?.ios?.total ?? P?.ios?.total ??
-    it.ipa_total ?? it.ios_total ?? it.cnt_ipa_total ?? it.cnt_ios_total
-  );
+  // 2) 舊版頂層鍵（仍相容）
+  today     = val(today, it.cnt_today);
+  total     = val(total, it.cnt_total);
+  apk_today = val(apk_today, it.apk_today, it.android_today, it.cnt_apk_today, it.cnt_android_today);
+  ipa_today = val(ipa_today, it.ipa_today, it.ios_today,     it.cnt_ipa_today, it.cnt_ios_today);
+  apk_total = val(apk_total, it.apk_total, it.android_total, it.cnt_apk_total, it.cnt_android_total);
+  ipa_total = val(ipa_total, it.ipa_total, it.ios_total,     it.cnt_ipa_total, it.cnt_ios_total);
 
   // 若平台加總 > 整體，使用平台加總（避免不同步導致顯示 0）
   const sumToday = apk_today + ipa_today;
