@@ -1,5 +1,5 @@
 // functions/api/auth/login.ts
-import { verifyPassword, signSession, setSessionCookie, hashPassword, Env } from "../_lib/auth";
+import { verifyPassword, signSession, setSessionCookie, Env } from "../_lib/auth";
 
 type Body = { email?: string; password?: string };
 
@@ -26,16 +26,6 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
   const ok = await verifyPassword(password, user.pw);
   if (!ok) return json({ error: "INVALID_CREDENTIALS" }, 401);
 
-  // 3.5) 若是舊雜湊格式（>100k iteration 或 SHA256 hex），驗證通過後換成新格式
-  if (needsRehash(user.pw)) {
-    try {
-      user.pw = await hashPassword(password);
-      await env.USERS.put(`user:${uid}`, JSON.stringify(user));
-    } catch (err) {
-      console.error("PASSWORD_REHASH_FAIL", err);
-    }
-  }
-
   // 4) 簽發 session 並設 cookie
   const token = await signSession(env.SESSION_SECRET, { uid: user.id, email: user.email }, env.SESSION_DAYS ?? 7);
   const headers = new Headers({ "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -50,21 +40,4 @@ function json(obj: any, status = 200) {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
-}
-
-function needsRehash(hash: string): boolean {
-  if (!hash) return true;
-  if (/^[0-9a-f]{64}$/i.test(hash)) return true; // legacy SHA-256
-  if (!hash.startsWith("pbkd")) return true;
-
-  if (hash.startsWith("pbkd$1$")) {
-    const parts = hash.split("$");
-    const iter = parseInt(parts[2] || "0", 10);
-    return iter > 100_000 || iter <= 0;
-  }
-
-  const body = hash.slice(5);
-  const parts = body.split(/[:$]/);
-  const iter = parseInt(parts[1] || "0", 10);
-  return iter > 100_000 || iter <= 0;
 }

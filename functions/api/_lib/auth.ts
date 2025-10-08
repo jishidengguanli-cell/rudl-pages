@@ -1,5 +1,4 @@
 /// <reference types="@cloudflare/workers-types" />
-import { pbkdf2Compat } from "./pbkdf2-compat";
 
 /**
  * Workers-friendly auth helpers（無 Node 型別）
@@ -115,53 +114,37 @@ export function clearSessionCookie(headers: Headers) {
 
 /* ---------- PBKDF2-SHA256 ---------- */
 const SALT_BYTES = 16;
-const ITER = 100_000; // Default iterations (<= Cloudflare limit).
+const ITER = 100_000; // Cloudflare Workers limit PBKDF2 iterations to <= 100k.
 const KEYLEN = 32;
-const PBKDF2_SAFE_MAX = 100_000;
-
-async function derivePbkdf2(password: string, salt: Uint8Array, iterations: number, keyLen: number): Promise<Uint8Array> {
-  const pwdBytes = te.encode(password);
-
-  // Fast path: use WebCrypto PBKDF2 when within the safe iteration limit.
-  if (iterations <= PBKDF2_SAFE_MAX) {
-    const key = await crypto.subtle.importKey(
-      "raw",
-      pwdBytes,
-      { name: "PBKDF2" },
-      false,
-      ["deriveBits"]
-    );
-    const bits = await crypto.subtle.deriveBits(
-      { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
-      key,
-      keyLen * 8
-    );
-    return new Uint8Array(bits);
-  }
-
-  // Fallback for legacy hashes created with >100k iterations (manual PBKDF2).
-  return pbkdf2Compat(pwdBytes, salt, iterations, keyLen);
-}
 
 // ---- 以 WebCrypto PBKDF2 雜湊，產生新格式：pbkd$1$<iter>$<saltB64>$<dkB64> ----
 export async function hashPassword(password: string): Promise<string> {
   const iterations = ITER;                       // 夠安全又不會太慢且符合 Workers 限制
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
-  const dk = await derivePbkdf2(password, salt, iterations, KEYLEN);
+  const enc = new TextEncoder();
+
+  // importKey -> deriveBits（PBKDF2 + SHA-256）
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(password),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    key,
+    KEYLEN * 8 // bits
+  );
+
+  const dk = new Uint8Array(bits);
   return `pbkd$1$${iterations}$${b64enc(salt)}$${b64enc(dk)}`;
 }
 
 // ---- 相容驗證：支援新舊多種分隔符（: 或 $）---- 
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   try {
-    if (!stored) return false;
-
-    // Legacy admin reset format: raw SHA-256 hex string
-    if (/^[0-9a-f]{64}$/i.test(stored)) {
-      return (await sha256Hex(password)) === stored.toLowerCase();
-    }
-
-    if (!stored.startsWith("pbkd")) return false;
+    if (!stored || !stored.startsWith("pbkd")) return false;
 
     let iterations = 0;
     let saltB64 = "";
@@ -188,8 +171,21 @@ export async function verifyPassword(password: string, stored: string): Promise<
     if (!iterations || !saltB64 || !dkB64) return false;
 
     const salt = b64dec(saltB64);
-    const dkBytes = await derivePbkdf2(password, salt, iterations, KEYLEN);
-    const dk = b64enc(dkBytes);
+    const enc = new TextEncoder();
+
+    const key = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(password),
+      { name: "PBKDF2" },
+      false,
+      ["deriveBits"]
+    );
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+      key,
+      KEYLEN * 8
+    );
+    const dk = b64enc(new Uint8Array(bits));
 
     // 時序安全比較（簡化：長度相同再迭代比對）
     if (dk.length !== dkB64.length) return false;
@@ -199,9 +195,4 @@ export async function verifyPassword(password: string, stored: string): Promise<
   } catch {
     return false;
   }
-}
-
-export async function sha256Hex(text: string): Promise<string> {
-  const hash = await crypto.subtle.digest("SHA-256", te.encode(text));
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
