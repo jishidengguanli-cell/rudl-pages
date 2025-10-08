@@ -114,13 +114,13 @@ export function clearSessionCookie(headers: Headers) {
 
 /* ---------- PBKDF2-SHA256 ---------- */
 const SALT_BYTES = 16;
-const ITER = 120_000;
+const ITER = 100_000; // Cloudflare Workers limit PBKDF2 iterations to <= 100k.
 const KEYLEN = 32;
 
 // ---- 以 WebCrypto PBKDF2 雜湊，產生新格式：pbkd$1$<iter>$<saltB64>$<dkB64> ----
 export async function hashPassword(password: string): Promise<string> {
-  const iterations = 120_000;                       // 夠安全又不會太慢
-  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iterations = ITER;                       // 夠安全又不會太慢且符合 Workers 限制
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   const enc = new TextEncoder();
 
   // importKey -> deriveBits（PBKDF2 + SHA-256）
@@ -134,7 +134,7 @@ export async function hashPassword(password: string): Promise<string> {
   const bits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
     key,
-    256 // 32 bytes
+    KEYLEN * 8 // bits
   );
 
   const dk = new Uint8Array(bits);
@@ -183,7 +183,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
     const bits = await crypto.subtle.deriveBits(
       { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
       key,
-      256
+      KEYLEN * 8
     );
     const dk = b64enc(new Uint8Array(bits));
 
