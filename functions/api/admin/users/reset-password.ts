@@ -1,5 +1,5 @@
 // functions/api/admin/users/reset-password.ts
-import { readCookie, verifySession, Env as AuthEnv } from "../../_lib/auth";
+import { readCookie, verifySession, hashPassword, Env as AuthEnv } from "../../_lib/auth";
 
 export interface Env extends AuthEnv {
   USERS: KVNamespace;
@@ -21,13 +21,6 @@ async function requireAdmin(ctx: PagesFunction<Env>["context"]) {
   return me;
 }
 
-// ======= 若你的 register.ts 有 hashPassword，請改用同一實作 =======
-async function sha256Hex(text: string) {
-  const enc = new TextEncoder().encode(text);
-  const buf = await crypto.subtle.digest("SHA-256", enc);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
 export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   const ok = await requireAdmin(ctx);
   if (ok instanceof Response) return ok as unknown as Response;
@@ -45,8 +38,7 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
   let u: any = {};
   try { u = JSON.parse(raw); } catch {}
 
-  // ⚠️ 這裡要改成你註冊時的同一套雜湊方式
-  u.pw = await sha256Hex(newPassword);
+  u.pw = await hashPassword(newPassword);
 
   await ctx.env.USERS.put(key, JSON.stringify(u));
   return J({ ok: true });
