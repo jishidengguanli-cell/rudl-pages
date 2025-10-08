@@ -822,54 +822,18 @@ function parseBinaryPlist(buf) {
 }
 
 (function(){
-  // 先嘗試用「後台同規格」API 取用戶餘額；失敗再回退 /api/me/points
-  async function fetchPointsViaAdmin(uid){
-    try{
-      const r = await fetch(`/api/admin/users/get?uid=${encodeURIComponent(uid)}`, {
-        credentials: 'include', cache: 'no-store'
-      });
-      if (!r.ok) return null;
-      const j = await r.json();
-      // 後台回傳可能是 { user: { points: 123 } } 或 { points: 123 }
-      const v = Number(j?.user?.points ?? j?.points ?? j?.balance);
-      return Number.isFinite(v) ? v : null;
-    }catch{ return null; }
-  }
-
-  async function fetchPointsViaMe(){
-    try{
-      const r = await fetch('/api/me/points', { credentials: 'include', cache: 'no-store' });
-      if (!r.ok) return null;
-      const j = await r.json();
-      const v = Number(j?.points);
-      return Number.isFinite(v) ? v : null;
-    }catch{ return null; }
-  }
-
   async function refresh(){
     const el = document.getElementById('points-badge');
     if (!el) return;
-    el.textContent = '… 讀取中';
-
-    // 取得當前登入者 uid
-    let uid = null;
     try{
-      const rMe = await fetch('/api/auth/me', { credentials: 'include', cache:'no-store' });
-      if (rMe.ok) {
-        const me = await rMe.json();
-        uid = me?.uid || me?.user?.uid || null;
-      }
-    }catch{}
-
-    // 先用 admin 介面取點數，失敗再回退 /api/me/points
-    let points = null;
-    if (uid) points = await fetchPointsViaAdmin(uid);
-    if (points === null) points = await fetchPointsViaMe();
-
-    el.textContent = (points ?? 0) + ' 剩餘點數';
+      const r = await fetch('/api/me/points', { credentials:'include', cache:'no-store' });
+      const j = await r.json();
+      const v = Number(j?.points);
+      el.textContent = (Number.isFinite(v) ? v : 0) + ' 剩餘點數';
+    }catch{
+      el.textContent = '-- 剩餘點數';
+    }
   }
-
-  // 事件：初始化與外部要求刷新
   document.addEventListener('DOMContentLoaded', refresh);
   window.addEventListener('points:updated', refresh);
   window.addEventListener('storage', (e)=>{ if(e.key === 'points:updated') refresh(); });
