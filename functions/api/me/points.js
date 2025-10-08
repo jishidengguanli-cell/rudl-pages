@@ -3,23 +3,7 @@ import { getUid } from "../../_utils.js";
 
 export async function onRequestGet({ request, env }) {
   // 先透過共用工具取得 uid（相容你在 points/deduct.js 的做法）
-  let uid = "";
-  try {
-    uid = getUid(request) || "";
-  } catch {
-    uid = "";
-  }
-
-  // 兼容：若尚未登入，但以 cookie 的 uid 做測試，仍回傳該 uid 的點數
-  if (!uid) {
-    try {
-      const cookie = request.headers.get("cookie") || "";
-      const m = cookie.match(/(?:^|;\s*)uid=([^;]+)/);
-      if (m) uid = decodeURIComponent(m[1]);
-    } catch {
-      uid = "";
-    }
-  }
+  const uid = await getUid(request, env);
 
   let points = 0;
   try {

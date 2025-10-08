@@ -4,7 +4,10 @@ import { getUid } from '../../_utils.js';
 const COST = { android: 3, ios: 5 };
 
 export async function onRequestPost({ request, env }) {
-  const uid = getUid(request);
+  const uid = await getUid(request, env);
+  if (!uid) {
+    return new Response(JSON.stringify({ error: 'UNAUTHORIZED' }), { status: 401 });
+  }
   const { platform } = await request.json();
   if (platform !== 'android' && platform !== 'ios') {
     return new Response(JSON.stringify({ error: 'INVALID_PLATFORM' }), { status: 400 });
