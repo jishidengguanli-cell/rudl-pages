@@ -15,6 +15,10 @@ export interface Env {
   SESSION_DAYS?: number;
 }
 
+// ---- Base64 helpers（Workers 可用）----
+const b64enc = (u8: Uint8Array) => btoa(String.fromCharCode(...u8));
+const b64dec = (s: string) => new Uint8Array(atob(s).split("").map(c => c.charCodeAt(0)));
+
 /* ---------- base64url ---------- */
 const te = new TextEncoder();
 const td = new TextDecoder();
@@ -113,49 +117,82 @@ const SALT_BYTES = 16;
 const ITER = 120_000;
 const KEYLEN = 32;
 
+// ---- 以 WebCrypto PBKDF2 雜湊，產生新格式：pbkd$1$<iter>$<saltB64>$<dkB64> ----
 export async function hashPassword(password: string): Promise<string> {
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  const iterations = 120_000;                       // 夠安全又不會太慢
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const enc = new TextEncoder();
 
-  const keyMaterial = await crypto.subtle.importKey(
+  // importKey -> deriveBits（PBKDF2 + SHA-256）
+  const key = await crypto.subtle.importKey(
     "raw",
-    BS(te.encode(password)),
-    "PBKDF2",
+    enc.encode(password),
+    { name: "PBKDF2" },
     false,
     ["deriveBits"]
   );
-
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: BS(salt), iterations: ITER },
-    keyMaterial,
-    KEYLEN * 8
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    key,
+    256 // 32 bytes
   );
 
-  const out = new Uint8Array(bits);
-  return `pbkdf2$${ITER}$${b64urlFromBytes(salt)}$${b64urlFromBytes(out)}`;
+  const dk = new Uint8Array(bits);
+  return `pbkd$1$${iterations}$${b64enc(salt)}$${b64enc(dk)}`;
 }
 
+// ---- 相容驗證：支援新舊多種分隔符（: 或 $）---- 
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const parts = stored.split("$");
-  if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+  try {
+    if (!stored || !stored.startsWith("pbkd")) return false;
 
-  const iter = parseInt(parts[1], 10) || ITER;
-  const salt = bytesFromB64url(parts[2]);
-  const hash = bytesFromB64url(parts[3]);
+    let iterations = 0;
+    let saltB64 = "";
+    let dkB64 = "";
 
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    BS(te.encode(password)),
-    "PBKDF2",
-    false,
-    ["deriveBits"]
-  );
+    // 新版：pbkd$1$<iter>$<salt>$<dk>
+    if (stored.startsWith("pbkd$1$")) {
+      const parts = stored.split("$"); // ["pbkd","1","<iter>","<salt>","<dk>"]
+      iterations = parseInt(parts[2], 10) || 0;
+      saltB64 = parts[3] || "";
+      dkB64 = parts[4] || "";
+    } else {
+      // 舊版（常見）：pbkd:<salt>:<iter>:<dk>  或 pbkd$<salt>$<iter>$<dk>
+      const body = stored.slice(5); // 去掉 "pbkd:"
+      const parts = body.split(/[:$]/); // ":" 或 "$" 都吃
+      if (parts.length >= 3) {
+        // 慣例多半是 salt, iter, dk
+        saltB64 = parts[0];
+        iterations = parseInt(parts[1], 10) || 0;
+        dkB64 = parts[2];
+      }
+    }
 
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: BS(salt), iterations: iter },
-    keyMaterial,
-    hash.length * 8
-  );
+    if (!iterations || !saltB64 || !dkB64) return false;
 
-  const out = new Uint8Array(bits);
-  return timeSafeEqual(out, hash);
+    const salt = b64dec(saltB64);
+    const enc = new TextEncoder();
+
+    const key = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(password),
+      { name: "PBKDF2" },
+      false,
+      ["deriveBits"]
+    );
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+      key,
+      256
+    );
+    const dk = b64enc(new Uint8Array(bits));
+
+    // 時序安全比較（簡化：長度相同再迭代比對）
+    if (dk.length !== dkB64.length) return false;
+    let ok = 0;
+    for (let i = 0; i < dk.length; i++) ok |= dk.charCodeAt(i) ^ dkB64.charCodeAt(i);
+    return ok === 0;
+  } catch {
+    return false;
+  }
 }
