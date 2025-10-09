@@ -114,37 +114,50 @@ export function clearSessionCookie(headers: Headers) {
 
 /* ---------- PBKDF2-SHA256 ---------- */
 const SALT_BYTES = 16;
-const ITER = 100_000; // Cloudflare Workers limit PBKDF2 iterations to <= 100k.
+const ITER = 100_000; // 預設迴圈（符合 Workers 限制）
 const KEYLEN = 32;
+const PBKDF2_SAFE_MAX = 100_000;
+
+async function derivePbkdf2(password: string, salt: Uint8Array, iterations: number, keyLen: number): Promise<Uint8Array> {
+  const pwdBytes = te.encode(password);
+
+  if (iterations <= PBKDF2_SAFE_MAX) {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      pwdBytes,
+      { name: "PBKDF2" },
+      false,
+      ["deriveBits"]
+    );
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+      key,
+      keyLen * 8
+    );
+    return new Uint8Array(bits);
+  }
+
+  return pbkdf2Fallback(pwdBytes, salt, iterations, keyLen);
+}
 
 // ---- 以 WebCrypto PBKDF2 雜湊，產生新格式：pbkd$1$<iter>$<saltB64>$<dkB64> ----
 export async function hashPassword(password: string): Promise<string> {
   const iterations = ITER;                       // 夠安全又不會太慢且符合 Workers 限制
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
-  const enc = new TextEncoder();
-
-  // importKey -> deriveBits（PBKDF2 + SHA-256）
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(password),
-    { name: "PBKDF2" },
-    false,
-    ["deriveBits"]
-  );
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
-    key,
-    KEYLEN * 8 // bits
-  );
-
-  const dk = new Uint8Array(bits);
+  const dk = await derivePbkdf2(password, salt, iterations, KEYLEN);
   return `pbkd$1$${iterations}$${b64enc(salt)}$${b64enc(dk)}`;
 }
 
 // ---- 相容驗證：支援新舊多種分隔符（: 或 $）---- 
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   try {
-    if (!stored || !stored.startsWith("pbkd")) return false;
+    if (!stored) return false;
+
+    if (/^[0-9a-f]{64}$/i.test(stored)) {
+      return (await sha256Hex(password)) === stored.toLowerCase();
+    }
+
+    if (!stored.startsWith("pbkd")) return false;
 
     let iterations = 0;
     let saltB64 = "";
@@ -171,21 +184,8 @@ export async function verifyPassword(password: string, stored: string): Promise<
     if (!iterations || !saltB64 || !dkB64) return false;
 
     const salt = b64dec(saltB64);
-    const enc = new TextEncoder();
-
-    const key = await crypto.subtle.importKey(
-      "raw",
-      enc.encode(password),
-      { name: "PBKDF2" },
-      false,
-      ["deriveBits"]
-    );
-    const bits = await crypto.subtle.deriveBits(
-      { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
-      key,
-      KEYLEN * 8
-    );
-    const dk = b64enc(new Uint8Array(bits));
+    const dkBytes = await derivePbkdf2(password, salt, iterations, KEYLEN);
+    const dk = b64enc(dkBytes);
 
     // 時序安全比較（簡化：長度相同再迭代比對）
     if (dk.length !== dkB64.length) return false;
@@ -194,5 +194,240 @@ export async function verifyPassword(password: string, stored: string): Promise<
     return ok === 0;
   } catch {
     return false;
+  }
+}
+
+export async function sha256Hex(text: string): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", te.encode(text));
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/* ---------- PBKDF2 fallback：純 JS 實作，支援超過 100k iterations ---------- */
+function pbkdf2Fallback(password: Uint8Array, salt: Uint8Array, iterations: number, dkLen: number): Uint8Array {
+  const blockCount = Math.ceil(dkLen / 32);
+  const dk = new Uint8Array(blockCount * 32);
+  const block = new Uint8Array(salt.length + 4);
+  block.set(salt);
+
+  const hmac = new HmacSha256(password);
+  const u = new Uint8Array(32);
+  const t = new Uint8Array(32);
+
+  for (let blockIndex = 1; blockIndex <= blockCount; blockIndex++) {
+    block[salt.length + 0] = (blockIndex >>> 24) & 0xff;
+    block[salt.length + 1] = (blockIndex >>> 16) & 0xff;
+    block[salt.length + 2] = (blockIndex >>> 8) & 0xff;
+    block[salt.length + 3] = blockIndex & 0xff;
+
+    hmac.reset();
+    hmac.update(block);
+    hmac.finish(u);
+    t.set(u);
+
+    for (let i = 1; i < iterations; i++) {
+      hmac.reset();
+      hmac.update(u);
+      hmac.finish(u);
+      for (let j = 0; j < 32; j++) t[j] ^= u[j];
+    }
+
+    dk.set(t, (blockIndex - 1) * 32);
+  }
+
+  hmac.clean();
+  u.fill(0);
+  t.fill(0);
+  block.fill(0);
+  return dk.slice(0, dkLen);
+}
+
+class HmacSha256 {
+  private inner = new Sha256();
+  private outer = new Sha256();
+  private ipad = new Uint8Array(64);
+  private opad = new Uint8Array(64);
+
+  constructor(key: Uint8Array) {
+    const blk = new Uint8Array(64);
+    if (key.length > 64) {
+      const hash = new Sha256();
+      hash.update(key);
+      hash.finish(blk);
+    } else {
+      blk.set(key);
+    }
+    for (let i = 0; i < 64; i++) {
+      const k = blk[i];
+      this.ipad[i] = k ^ 0x36;
+      this.opad[i] = k ^ 0x5c;
+    }
+    this.inner.update(this.ipad);
+    this.outer.update(this.opad);
+    blk.fill(0);
+  }
+
+  reset() {
+    this.inner.reset();
+    this.outer.reset();
+    this.inner.update(this.ipad);
+    this.outer.update(this.opad);
+  }
+
+  update(data: Uint8Array) {
+    this.inner.update(data);
+  }
+
+  finish(out: Uint8Array) {
+    const ih = new Uint8Array(32);
+    this.inner.finish(ih);
+    this.outer.update(ih);
+    this.outer.finish(out);
+    ih.fill(0);
+  }
+
+  clean() {
+    this.inner.clean();
+    this.outer.clean();
+    this.ipad.fill(0);
+    this.opad.fill(0);
+  }
+}
+
+class Sha256 {
+  private state = new Int32Array(8);
+  private buffer = new Uint8Array(64);
+  private temp = new Int32Array(64);
+  private bufferLength = 0;
+  private bytesHashed = 0;
+  private finished = false;
+
+  private static readonly K = new Int32Array([
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ]);
+
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    this.state[0] = 0x6a09e667;
+    this.state[1] = 0xbb67ae85;
+    this.state[2] = 0x3c6ef372;
+    this.state[3] = 0xa54ff53a;
+    this.state[4] = 0x510e527f;
+    this.state[5] = 0x9b05688c;
+    this.state[6] = 0x1f83d9ab;
+    this.state[7] = 0x5be0cd19;
+    this.bufferLength = 0;
+    this.bytesHashed = 0;
+    this.finished = false;
+  }
+
+  clean() {
+    this.state.fill(0);
+    this.buffer.fill(0);
+    this.temp.fill(0);
+  }
+
+  update(data: Uint8Array) {
+    if (this.finished) throw new Error("SHA256: can't update because hash was finished.");
+    let pos = 0;
+    const len = data.length;
+    this.bytesHashed += len;
+    if (this.bufferLength > 0) {
+      while (this.bufferLength < 64 && pos < len) {
+        this.buffer[this.bufferLength++] = data[pos++];
+      }
+      if (this.bufferLength === 64) {
+        this.hashBlocks(this.buffer, 0);
+        this.bufferLength = 0;
+      }
+    }
+    while (pos + 64 <= len) {
+      this.hashBlocks(data, pos);
+      pos += 64;
+    }
+    while (pos < len) {
+      this.buffer[this.bufferLength++] = data[pos++];
+    }
+  }
+
+  finish(out: Uint8Array) {
+    if (!this.finished) {
+      const bytesHashed = this.bytesHashed;
+      const bitLenHi = (bytesHashed / 0x20000000) | 0;
+      const bitLenLo = bytesHashed << 3;
+      this.buffer[this.bufferLength++] = 0x80;
+      if (this.bufferLength > 56) {
+        while (this.bufferLength < 64) this.buffer[this.bufferLength++] = 0;
+        this.hashBlocks(this.buffer, 0);
+        this.bufferLength = 0;
+      }
+      while (this.bufferLength < 56) this.buffer[this.bufferLength++] = 0;
+      this.buffer[56] = (bitLenHi >>> 24) & 0xff;
+      this.buffer[57] = (bitLenHi >>> 16) & 0xff;
+      this.buffer[58] = (bitLenHi >>> 8) & 0xff;
+      this.buffer[59] = bitLenHi & 0xff;
+      this.buffer[60] = (bitLenLo >>> 24) & 0xff;
+      this.buffer[61] = (bitLenLo >>> 16) & 0xff;
+      this.buffer[62] = (bitLenLo >>> 8) & 0xff;
+      this.buffer[63] = bitLenLo & 0xff;
+      this.hashBlocks(this.buffer, 0);
+      this.finished = true;
+    }
+    for (let i = 0; i < 8; i++) {
+      out[i * 4 + 0] = (this.state[i] >>> 24) & 0xff;
+      out[i * 4 + 1] = (this.state[i] >>> 16) & 0xff;
+      out[i * 4 + 2] = (this.state[i] >>> 8) & 0xff;
+      out[i * 4 + 3] = this.state[i] & 0xff;
+    }
+  }
+
+  private hashBlocks(data: Uint8Array, pos: number) {
+    const { state, temp } = this;
+    for (let i = 0; i < 16; i++) {
+      const j = pos + (i << 2);
+      temp[i] = ((data[j] << 24) | (data[j + 1] << 16) | (data[j + 2] << 8) | data[j + 3]) | 0;
+    }
+    for (let i = 16; i < 64; i++) {
+      const s0 = temp[i - 15];
+      const s1 = temp[i - 2];
+      const gamma0 = ((s0 >>> 7) | (s0 << 25)) ^ ((s0 >>> 18) | (s0 << 14)) ^ (s0 >>> 3);
+      const gamma1 = ((s1 >>> 17) | (s1 << 15)) ^ ((s1 >>> 19) | (s1 << 13)) ^ (s1 >>> 10);
+      temp[i] = (temp[i - 16] + gamma0 + temp[i - 7] + gamma1) | 0;
+    }
+    let a = state[0], b = state[1], c = state[2], d = state[3];
+    let e = state[4], f = state[5], g = state[6], h = state[7];
+    for (let i = 0; i < 64; i++) {
+      const sigma1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+      const ch = (e & f) ^ (~e & g);
+      const t1 = (h + sigma1 + ch + Sha256.K[i] + temp[i]) | 0;
+      const sigma0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (sigma0 + maj) | 0;
+      h = g;
+      g = f;
+      f = e;
+      e = (d + t1) | 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (t1 + t2) | 0;
+    }
+    state[0] = (state[0] + a) | 0;
+    state[1] = (state[1] + b) | 0;
+    state[2] = (state[2] + c) | 0;
+    state[3] = (state[3] + d) | 0;
+    state[4] = (state[4] + e) | 0;
+    state[5] = (state[5] + f) | 0;
+    state[6] = (state[6] + g) | 0;
+    state[7] = (state[7] + h) | 0;
   }
 }
