@@ -7,12 +7,18 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
   let body: Body = {};
   try { body = await request.json(); } catch {}
 
-  const email = (body.email || "").trim().toLowerCase();
+  const emailRaw = (body.email || "").trim();
+  const email = emailRaw.toLowerCase();
   const password = body.password || "";
-  if (!email || !password) return json({ error: "MISSING_FIELDS" }, 400);
+  if (!emailRaw || !password) return json({ error: "MISSING_FIELDS" }, 400);
 
-  // 1) 由 email 找 uid
-  const uid = await env.USERS.get(`email:${email}`);
+  // 1) 由 email 找 uid（先小寫，再相容舊大小寫記錄）
+  let uid = await env.USERS.get(`email:${email}`);
+  let fetchedWithRaw = false;
+  if (!uid && emailRaw !== email) {
+    uid = await env.USERS.get(`email:${emailRaw}`);
+    fetchedWithRaw = !!uid;
+  }
   if (!uid) return json({ error: "INVALID_CREDENTIALS" }, 401);
 
   // 2) 取出使用者資料
@@ -25,6 +31,15 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
   // 3) 驗證密碼
   const ok = await verifyPassword(password, user.pw);
   if (!ok) return json({ error: "INVALID_CREDENTIALS" }, 401);
+
+  // 若從舊大小寫鍵取到 uid，補寫小寫映射以便未來登入
+  if (fetchedWithRaw) {
+    try {
+      await env.USERS.put(`email:${email}`, uid);
+    } catch (err) {
+      console.error("EMAIL_ALIAS_WRITE_FAIL", err);
+    }
+  }
 
   // 4) 簽發 session 並設 cookie
   const token = await signSession(env.SESSION_SECRET, { uid: user.id, email: user.email }, env.SESSION_DAYS ?? 7);

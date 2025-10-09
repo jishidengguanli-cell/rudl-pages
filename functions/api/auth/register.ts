@@ -18,11 +18,12 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     // ------- 讀 body 與基本驗證 -------
     let body: Body = {};
     try { body = await request.json(); } catch {}
-    const email = (body.email || "").trim().toLowerCase();
+    const emailRaw = (body.email || "").trim();
+    const email = emailRaw.toLowerCase();
     const password = body.password || "";
 
-    if (!email || !password) return J({ error: "MISSING_FIELDS" }, 400);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return J({ error: "INVALID_EMAIL" }, 400);
+    if (!emailRaw || !password) return J({ error: "MISSING_FIELDS" }, 400);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) return J({ error: "INVALID_EMAIL" }, 400);
     if (password.length < 6) return J({ error: "WEAK_PASSWORD" }, 400);
 
     // ------- 綁定與環境變數 -------
@@ -37,8 +38,9 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
 
     // ------- 檢查 email 是否已註冊 -------
     try {
-      const exists = await KV.get(`email:${email}`);
-      if (exists) return J({ error: "EMAIL_EXISTS" }, 409);
+      const existsLower = await KV.get(`email:${email}`);
+      const existsRaw = emailRaw !== email ? await KV.get(`email:${emailRaw}`) : null;
+      if (existsLower || existsRaw) return J({ error: "EMAIL_EXISTS" }, 409);
     } catch (e: any) {
       console.error("KV_READ_FAIL(email->uid)", e);
       return J({ error: "KV_READ_FAIL", detail: String(e?.message || e) }, 500);
@@ -55,12 +57,13 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
 
     // ------- 建立 user record 並寫入 KV -------
     const uid = crypto.randomUUID();
-    const record = { id: uid, email, pw, createdAt: Date.now() };
+    const record = { id: uid, email: emailRaw, emailLower: email, pw, createdAt: Date.now() };
 
     try {
       // 先寫 user，再寫 email 映射
       await KV.put(`user:${uid}`, JSON.stringify(record));
       await KV.put(`email:${email}`, uid);
+      if (emailRaw !== email) await KV.put(`email:${emailRaw}`, uid);
     } catch (e: any) {
       console.error("KV_WRITE_FAIL(user/email)", e);
       return J({ error: "KV_WRITE_FAIL", detail: String(e?.message || e) }, 500);
@@ -69,7 +72,7 @@ export async function onRequestPost({ request, env }: { request: Request; env: E
     // ------- 簽發 session 並回 cookie -------
     let token: string;
     try {
-      token = await signSession(SESSION_SECRET, { uid, email }, SESSION_DAYS);
+      token = await signSession(SESSION_SECRET, { uid, email: emailRaw }, SESSION_DAYS);
     } catch (e: any) {
       console.error("SIGN_FAIL", e);
       return J({ error: "SIGN_FAIL", detail: String(e?.message || e) }, 500);
