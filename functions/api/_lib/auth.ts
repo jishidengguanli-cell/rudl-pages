@@ -157,28 +157,46 @@ export async function verifyPassword(password: string, stored: string): Promise<
       return (await sha256Hex(password)) === stored.toLowerCase();
     }
 
-    if (!stored.startsWith("pbkd")) return false;
-
     let iterations = 0;
     let saltB64 = "";
     let dkB64 = "";
 
-    // 新版：pbkd$1$<iter>$<salt>$<dk>
-    if (stored.startsWith("pbkd$1$")) {
-      const parts = stored.split("$"); // ["pbkd","1","<iter>","<salt>","<dk>"]
-      iterations = parseInt(parts[2], 10) || 0;
-      saltB64 = parts[3] || "";
-      dkB64 = parts[4] || "";
-    } else {
-      // 舊版（常見）：pbkd:<salt>:<iter>:<dk>  或 pbkd$<salt>$<iter>$<dk>
-      const body = stored.slice(5); // 去掉 "pbkd:"
-      const parts = body.split(/[:$]/); // ":" 或 "$" 都吃
-      if (parts.length >= 3) {
-        // 慣例多半是 salt, iter, dk
-        saltB64 = parts[0];
-        iterations = parseInt(parts[1], 10) || 0;
-        dkB64 = parts[2];
+    if (stored.startsWith("pbkdf2$")) {
+      const parts = stored.split("$"); // ["pbkdf2","<iter>","<salt>","<dk>"]
+      iterations = parseInt(parts[1], 10) || 0;
+      saltB64 = parts[2] || "";
+      dkB64 = parts[3] || "";
+    } else if (stored.startsWith("pbkdf2:")) {
+      const parts = stored.split(":"); // ["pbkdf2","<iter>","<salt>","<dk>"] or ["pbkdf2","<salt>","<iter>","<dk>"]
+      if (parts.length >= 4) {
+        if (/^\d+$/.test(parts[1])) {
+          iterations = parseInt(parts[1], 10) || 0;
+          saltB64 = parts[2] || "";
+          dkB64 = parts[3] || "";
+        } else {
+          saltB64 = parts[1] || "";
+          iterations = parseInt(parts[2], 10) || 0;
+          dkB64 = parts[3] || "";
+        }
       }
+    } else if (stored.startsWith("pbkd")) {
+      // pbkd family (new + legacy)
+      if (stored.startsWith("pbkd$1$")) {
+        const parts = stored.split("$"); // ["pbkd","1","<iter>","<salt>","<dk>"]
+        iterations = parseInt(parts[2], 10) || 0;
+        saltB64 = parts[3] || "";
+        dkB64 = parts[4] || "";
+      } else {
+        const body = stored.slice(5); // 去掉 "pbkd:"
+        const parts = body.split(/[:$]/); // ":" 或 "$"
+        if (parts.length >= 3) {
+          saltB64 = parts[0];
+          iterations = parseInt(parts[1], 10) || 0;
+          dkB64 = parts[2];
+        }
+      }
+    } else {
+      return false;
     }
 
     if (!iterations || !saltB64 || !dkB64) return false;
