@@ -348,7 +348,7 @@ function renderLangSwitcher(code: string, cur: string) {
   // 產生下拉 + 變更即導向 ?lang=xx（保留其他查詢參數）
   return `
   <label style="display:inline-flex;align-items:center;gap:.5rem">
-    <span style="opacity:.75">${h("語言 / Language")}</span>
+    <span style="opacity:.75">${h(t("language"))}</span>
     <select id="langSel"
             style="padding:.4rem .6rem;border-radius:10px;background:#0b1222;border:1px solid #334155;color:#e5e7eb">
       ${options}
