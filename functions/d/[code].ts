@@ -34,12 +34,25 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const hasApk = !!rec.apk_key;
   const hasIpa = !!rec.ipa_key;
 
-  // 取 IPA 內資訊為主
+  // 顯示用（只吃分發資料）
+  const title   = rec.title || "App";
+  const verDisp = rec.version || "";
+  const bidDisp = rec.bundle_id || "";
+  
+  // 安裝用（只吃 ipaMeta）
   const meta = rec.ipaMeta || {};
-  const title   = meta.display_name || meta.name || meta.CFBundleDisplayName || meta.CFBundleName || rec.title || "App";
-  const verDisp = meta.version || rec.version || "";
-  const bidDisp = meta.bundle_id || rec.bundle_id || "";
+  const pkgName = meta.display_name || meta.name || meta.CFBundleDisplayName || meta.CFBundleName || "";
+  const pkgVer  = meta.version || "";
+  const pkgBid  = meta.bundle_id || "";
   const devName = meta.dev_name || "企業開發者";
+  
+  // 缺值檢查（安裝用）
+  const missing: string[] = [];
+  if (!pkgName) missing.push("App Name");
+  if (!pkgVer)  missing.push("Version");
+  if (!pkgBid)  missing.push("Bundle ID");
+  const missMsg = "安裝包資訊不完整： " + missing.join("、");
+  const disableIos = (missing.length > 0);
 
   // ---- i18n（略，與你現版相同）----
   const url = new URL(ctx.request.url);
@@ -125,7 +138,11 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 
       <div class="btns">
         ${hasApk ? `<a class="btn" href="${attr(hrefApk)}" id="btn-android">${h(t("androidDownload"))}</a>` : ""}
-        ${hasIpa ? `<a class="btn" href="${attr(hrefIos)}" id="btn-ios" data-dev="${attr(devName)}">${h(t("iosInstall"))}</a>` : ""}
+        ${hasIpa ? `<a class="btn" href="${attr(disableIos ? '#' : hrefIos)}"
+          id="btn-ios" data-dev="${attr(devName)}" data-missing="${attr(missMsg)}"
+          ${disableIos ? 'aria-disabled="true"' : ''}>
+          ${h(t("iosInstall"))}
+        </a>` : ""}
         ${!hasApk && !hasIpa ? `<span class="muted">${h(t("noFiles"))}</span>` : ""}
       </div>
 
@@ -195,6 +212,17 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
       document.getElementById('btnCloseGuide').addEventListener('click', hideGuide);
       mask.addEventListener('click', hideGuide);
 
+      // 若安裝包資訊不完整 → 阻止安裝並提示
+      var miss = installBtn && installBtn.getAttribute('data-missing');
+      if (miss && miss.indexOf('不完整') >= 0) {
+        installBtn.addEventListener('click', function(e){
+          e.preventDefault();
+          alert(miss);
+        });
+        // 直接 return; 不要再綁後續的 iOS 安裝/扣點邏輯
+        return;
+      }
+      
       // iOS：直接 itms-services，不阻塞；扣點背景送出
       installBtn.addEventListener('click', function(e){
         if (!isiOS()) return; // Android/桌面等不處理
