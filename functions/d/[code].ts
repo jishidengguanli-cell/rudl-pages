@@ -51,7 +51,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   if (!pkgName) missing.push("App Name");
   if (!pkgVer)  missing.push("Version");
   if (!pkgBid)  missing.push("Bundle ID");
-  const missMsg = "安裝包資訊不完整： " + missing.join("、");
+  const missMsg = missing.length ? ("安裝包資訊不完整： " + missing.join("、")) : "";
   const disableIos = (missing.length > 0);
 
   // ---- i18n（略，與你現版相同）----
@@ -214,7 +214,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 
       // 若安裝包資訊不完整 → 阻止安裝並提示
       var miss = installBtn && installBtn.getAttribute('data-missing');
-      if (miss && miss.indexOf('不完整') >= 0) {
+      if (miss) {
         installBtn.addEventListener('click', function(e){
           e.preventDefault();
           alert(miss);
