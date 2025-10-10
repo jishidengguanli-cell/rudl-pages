@@ -5,5 +5,8 @@
     "@typescript-eslint/parser": "^8.44.0",
     "eslint": "^9.35.0",
     "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
   }
 }

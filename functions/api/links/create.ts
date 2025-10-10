@@ -1,8 +1,6 @@
 // functions/api/links/create.ts
 import { readCookie, verifySession, Env as AuthEnv } from "../_lib/auth";
-import JSZip from "jszip";
-import * as bplist from "bplist-parser";
-import * as plist from "plist";
+import { unzipSync } from "fflate";
 
 export interface Env extends AuthEnv {
   LINKS: KVNamespace;
@@ -135,53 +133,261 @@ function encodePath(path: string) {
 }
 
 async function extractIpaMeta(ipaBytes: Uint8Array) {
-  const zip = await JSZip.loadAsync(ipaBytes);
-  const infoPath = Object.keys(zip.files).find(p => /Payload\/[^/]+\.app\/Info\.plist$/.test(p));
-  if (!infoPath) throw new Error("Info.plist not found");
-  const infoBuf = await zip.file(infoPath)!.async("uint8array");
-  const info: any = parsePlist(infoBuf);
+  const zip = unzipSync(ipaBytes, {
+    filter(file) {
+      if (!/^Payload\//i.test(file.name)) return false;
+      return /\/Info\.plist$/i.test(file.name) || /\/InfoPlist\.strings$/i.test(file.name);
+    },
+  });
+  const infoEntry = findZipEntry(zip, /Payload\/[^/]+\.app\/Info\.plist$/i);
+  if (!infoEntry) throw new Error("Info.plist not found");
+  const info = parsePlist(infoEntry.data);
   if (!info) throw new Error("Info.plist parse failed");
 
-  const bundle_id = info.CFBundleIdentifier || "";
-  const version = info.CFBundleShortVersionString || info.CFBundleVersion || "";
+  const bundle_id = asString(info.CFBundleIdentifier);
+  const version = asString(info.CFBundleShortVersionString) || asString(info.CFBundleVersion);
 
   // 顯示名稱：先取 plist；若空或疑似占位，再讀本地化 strings
-  let display_name = (info.CFBundleDisplayName || info.CFBundleName || "").trim();
+  let display_name =
+    asString(info.CFBundleDisplayName) ||
+    asString(info.CFBundleName) ||
+    asString(info.CFBundleExecutable);
+  display_name = display_name.trim();
+
   if (!display_name || /\$\(|%[@{]/.test(display_name)) {
-    const devRegion = String(info.CFBundleDevelopmentRegion || "en");
-    const appDir = infoPath.replace(/\/Info\.plist$/, "/");
+    const devRegion = asString(info.CFBundleDevelopmentRegion) || "en";
+    const appDir = infoEntry.path.replace(/\/Info\.plist$/i, "/");
     const candidates = [
       appDir + `${devRegion}.lproj/InfoPlist.strings`,
-      appDir + `Base.lproj/InfoPlist.strings`
+      appDir + "Base.lproj/InfoPlist.strings",
     ];
-    for (const p of candidates) {
-      if (!zip.files[p]) continue;
-      const buf = await zip.file(p)!.async("uint8array");
-      const dict = parsePlistOrStrings(buf);
-      const v = dict?.CFBundleDisplayName || dict?.CFBundleName;
-      if (v && String(v).trim()) { display_name = String(v).trim(); break; }
+    for (const candidate of candidates) {
+      const entry = findZipEntry(zip, new RegExp(escapeRegex(candidate) + "$", "i"));
+      if (!entry) continue;
+      const dict = parsePlistOrStrings(entry.data);
+      const v =
+        asString(dict?.CFBundleDisplayName) ||
+        asString(dict?.CFBundleName) ||
+        asString(dict?.CFBundleExecutable);
+      if (v.trim()) {
+        display_name = v.trim();
+        break;
+      }
     }
   }
   return { bundle_id, version, display_name };
 }
 
-function parsePlist(buf: Uint8Array) {
-  try { return bplist.parseBuffer(Buffer.from(buf))[0]; } catch {}
-  try { return plist.parse(Buffer.from(buf).toString("utf8")); } catch {}
-  return null;
+function parsePlist(bytes: Uint8Array) {
+  const binary = parseBinaryPlist(bytes);
+  if (binary) return binary;
+  const text = decodeText(bytes);
+  if (!text) return null;
+  return parsePlistXml(text);
 }
 
 // .strings 可能是 binary plist、也可能是 UTF-16/UTF-8 的 key="value"; 檔
 function parsePlistOrStrings(buf: Uint8Array): any {
-  const fromPlist = parsePlist(buf);
-  if (fromPlist) return fromPlist;
-  // 嘗試當作字串表：偵測 UTF-16 BOM
-  const u8 = Buffer.from(buf);
-  let s = "";
-  if (u8[0] === 0xFF && u8[1] === 0xFE) s = new TextDecoder("utf-16le").decode(u8);
-  else if (u8[0] === 0xFE && u8[1] === 0xFF) s = new TextDecoder("utf-16be").decode(u8);
-  else s = new TextDecoder("utf-8").decode(u8);
-  const out: any = {};
-  s.replace(/"([^"]+)"\s*=\s*"([^"]*)"\s*;/g, (_, k, v) => { out[k] = v; return ""; });
+  const asPlist = parsePlist(buf);
+  if (asPlist && typeof asPlist === "object" && !Array.isArray(asPlist)) return asPlist;
+  const text = decodeText(buf);
+  if (!text) return {};
+  const out: Record<string, string> = {};
+  text.replace(/"([^"]+)"\s*=\s*"([^"]*)"\s*;/g, (_, k, v) => {
+    out[decodeStringsToken(k)] = decodeStringsToken(v);
+    return "";
+  });
   return out;
+}
+
+const tdUtf8 = new TextDecoder("utf-8");
+const tdUtf16le = new TextDecoder("utf-16le");
+const tdUtf16be = new TextDecoder("utf-16be");
+
+function decodeText(bytes: Uint8Array): string {
+  if (!bytes || bytes.length === 0) return "";
+  if (bytes.length >= 2) {
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) return tdUtf16le.decode(bytes.subarray(2));
+    if (bytes[0] === 0xfe && bytes[1] === 0xff) return tdUtf16be.decode(bytes.subarray(2));
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return tdUtf8.decode(bytes.subarray(3));
+  }
+  return tdUtf8.decode(bytes);
+}
+
+function parsePlistXml(xml: string) {
+  const obj: Record<string, unknown> = {};
+  const keyRe = /<key>([^<]+)<\/key>\s*(<[^>]+>[\s\S]*?(?:<\/[^>]+>|\/>))/gi;
+  let match: RegExpExecArray | null;
+  while ((match = keyRe.exec(xml))) {
+    const key = decodeXml(match[1].trim());
+    const valueNode = match[2];
+    const value = parsePlistXmlValue(valueNode);
+    if (value !== undefined) obj[key] = value;
+  }
+  return obj;
+}
+
+function parsePlistXmlValue(node: string): unknown {
+  const trimmed = node.trim();
+  if (/^<string/i.test(trimmed)) return decodeXml(trimmed.replace(/^<string[^>]*>/i, "").replace(/<\/string>$/i, "").trim());
+  if (/^<integer/i.test(trimmed)) return parseInt(trimmed.replace(/^<integer[^>]*>/i, "").replace(/<\/integer>$/i, "").trim(), 10);
+  if (/^<real/i.test(trimmed)) return parseFloat(trimmed.replace(/^<real[^>]*>/i, "").replace(/<\/real>$/i, "").trim());
+  if (/^<true\/?>/i.test(trimmed)) return true;
+  if (/^<false\/?>/i.test(trimmed)) return false;
+  if (/^<dict/i.test(trimmed)) return parsePlistXml(trimmed.replace(/^<dict[^>]*>/i, "").replace(/<\/dict>$/i, ""));
+  if (/^<array/i.test(trimmed)) {
+    const inner = trimmed.replace(/^<array[^>]*>/i, "").replace(/<\/array>$/i, "");
+    const items: unknown[] = [];
+    const valueRe = /<[^>]+>[\s\S]*?(?:<\/[^>]+>|\/>)/gi;
+    let valueMatch: RegExpExecArray | null;
+    while ((valueMatch = valueRe.exec(inner))) {
+      const val = parsePlistXmlValue(valueMatch[0]);
+      if (val !== undefined) items.push(val);
+    }
+    return items;
+  }
+  return undefined;
+}
+
+function parseBinaryPlist(bytes: Uint8Array): any {
+  try {
+    if (bytes.length < 8) return null;
+    const head = tdUtf8.decode(bytes.subarray(0, 8));
+    if (!head.startsWith("bplist")) return null;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const trailerOffset = bytes.byteLength - 32;
+    if (trailerOffset < 0) return null;
+    const trailer = new DataView(bytes.buffer, bytes.byteOffset + trailerOffset, 32);
+    const offsetSize = trailer.getUint8(6);
+    const objRefSize = trailer.getUint8(7);
+    const numObjects = Number(readUIntBE(trailer, 8, 8));
+    const topObject = Number(readUIntBE(trailer, 16, 8));
+    const offsetTableOffset = Number(readUIntBE(trailer, 24, 8));
+    const offsets: number[] = [];
+    for (let i = 0; i < numObjects; i++) {
+      offsets.push(Number(readUIntBE(view, offsetTableOffset + i * offsetSize, offsetSize)));
+    }
+    const readObj = (idx: number): any => {
+      const off = offsets[idx];
+      const t = bytes[off];
+      const type = (t & 0xf0) >> 4;
+      const info = t & 0x0f;
+      const readLength = (position: number, infoField: number) => {
+        if (infoField !== 0x0f) return { length: infoField, ptr: position + 1 };
+        const t2 = bytes[position + 1];
+        const type2 = (t2 & 0xf0) >> 4;
+        const info2 = t2 & 0x0f;
+        if (type2 !== 0x1) throw new Error("binary plist length not int");
+        const nBytes = 1 << info2;
+        const val = Number(readUIntBE(view, position + 2, nBytes));
+        return { length: val, ptr: position + 2 + nBytes };
+      };
+      if (type === 0x0) {
+        if (info === 0x8) return false;
+        if (info === 0x9) return true;
+        return null;
+      }
+      if (type === 0x1) {
+        const nBytes = 1 << info;
+        return Number(readUIntBE(view, off + 1, nBytes));
+      }
+      if (type === 0x2) {
+        const nBytes = 1 << info;
+        if (nBytes === 4) return view.getFloat32(off + 1, false);
+        if (nBytes === 8) return view.getFloat64(off + 1, false);
+        return null;
+      }
+      if (type === 0x4) {
+        const { length, ptr } = readLength(off, info);
+        return bytes.slice(ptr, ptr + length);
+      }
+      if (type === 0x5) {
+        const { length, ptr } = readLength(off, info);
+        return tdUtf8.decode(bytes.subarray(ptr, ptr + length));
+      }
+      if (type === 0x6) {
+        const { length, ptr } = readLength(off, info);
+        const chars: number[] = [];
+        for (let i = 0; i < length; i++) chars.push(view.getUint16(ptr + i * 2, false));
+        return String.fromCharCode(...chars);
+      }
+      if (type === 0xa) {
+        const { length, ptr } = readLength(off, info);
+        const arr: any[] = [];
+        for (let i = 0; i < length; i++) {
+          const objRef = Number(readUIntBE(view, ptr + i * objRefSize, objRefSize));
+          arr.push(readObj(objRef));
+        }
+        return arr;
+      }
+      if (type === 0xd) {
+        const { length, ptr } = readLength(off, info);
+        const keys: any[] = [];
+        const vals: any[] = [];
+        for (let i = 0; i < length; i++) {
+          const keyRef = Number(readUIntBE(view, ptr + i * objRefSize, objRefSize));
+          keys.push(readObj(keyRef));
+        }
+        const valuesPtr = ptr + length * objRefSize;
+        for (let i = 0; i < length; i++) {
+          const valRef = Number(readUIntBE(view, valuesPtr + i * objRefSize, objRefSize));
+          vals.push(readObj(valRef));
+        }
+        const out: Record<string, any> = {};
+        for (let i = 0; i < length; i++) out[String(keys[i])] = vals[i];
+        return out;
+      }
+      return null;
+    };
+    return readObj(topObject) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function readUIntBE(view: DataView, offset: number, length: number): bigint {
+  let n = 0n;
+  for (let i = 0; i < length; i++) {
+    n = (n << 8n) | BigInt(view.getUint8(offset + i));
+  }
+  return n;
+}
+
+function findZipEntry(zip: Record<string, Uint8Array>, pattern: RegExp) {
+  const path = Object.keys(zip).find((p) => pattern.test(p));
+  if (!path) return null;
+  return { path, data: zip[path] };
+}
+
+function asString(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "bigint") return String(v);
+  if (typeof v === "boolean") return v ? "true" : "";
+  if (v instanceof Uint8Array) return decodeText(v);
+  return "";
+}
+
+function decodeStringsToken(token: string) {
+  return token.replace(/\\(.)/g, (_, ch) => ch);
+}
+
+function decodeXml(input: string) {
+  return input
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&#(x?[0-9a-fA-F]+);/g, (_, code) => {
+      const isHex = /^x/i.test(code);
+      const num = isHex ? parseInt(code.slice(1), 16) : parseInt(code, 10);
+      if (Number.isNaN(num)) return "";
+      return String.fromCodePoint(num);
+    });
+}
+
+function escapeRegex(input: string) {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
