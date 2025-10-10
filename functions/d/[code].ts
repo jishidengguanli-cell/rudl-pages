@@ -362,10 +362,6 @@ function renderLangSwitcher(code: string, cur: string) {
   </script>`;
 }
 
-
-}).join("");
-}
-
 function normLang(v?: string | null) {
   if (!v) return "";
   const s = v.trim();
