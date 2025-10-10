@@ -29,18 +29,10 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 
   const meta = rec.ipaMeta || {};
 
-  // 1) 名稱：優先 IPA 內的 display_name/name/...，最後才用分發填的
-  const title =
-    meta.display_name ||
-    meta.name ||
-    meta.CFBundleDisplayName ||
-    meta.CFBundleName ||
-    rec.title ||
-    "App";
-
-  // 2) 版本/BundleId 也一律優先 IPA 內 meta，其次才用分發欄位
-  const version = meta.version || rec.version || "1.0";
-  const bundle  = meta.bundle_id || rec.bundle_id || `com.unknown.${rec.code}`;
+  // 1) 名稱： IPA 內的 display_name/name/...
+  const title   = meta.display_name || meta.name || meta.CFBundleDisplayName || meta.CFBundleName || "";
+  const version = meta.version || "";
+  const bundle  = meta.bundle_id || "";
 
   // RFC3986 逐段編碼（保留斜線）
   const ipaPath = encodeRfc3986Path(rec.ipa_key.replace(/^\/+/, ""));
