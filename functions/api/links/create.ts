@@ -1,10 +1,13 @@
 // functions/api/links/create.ts
 import { readCookie, verifySession, Env as AuthEnv } from "../_lib/auth";
-import { unzipSync } from "fflate";
 
 export interface Env extends AuthEnv {
   LINKS: KVNamespace;
 }
+
+const tdUtf8 = new TextDecoder("utf-8");
+const tdUtf16le = new TextDecoder("utf-16le");
+const tdUtf16be = new TextDecoder("utf-16be");
 
 // 建立一個分發：產生短碼、寫入 LINKS、把短碼掛到使用者清單
 // 輸入: { title?, version?, bundle_id?, apkKey?, ipaKey?, ipaMeta? }
@@ -133,15 +136,14 @@ function encodePath(path: string) {
 }
 
 async function extractIpaMeta(ipaBytes: Uint8Array) {
-  const zip = unzipSync(ipaBytes, {
-    filter(file) {
-      if (!/^Payload\//i.test(file.name)) return false;
-      return /\/Info\.plist$/i.test(file.name) || /\/InfoPlist\.strings$/i.test(file.name);
-    },
-  });
-  const infoEntry = findZipEntry(zip, /Payload\/[^/]+\.app\/Info\.plist$/i);
+  const entries = parseZipEntries(ipaBytes);
+  const entryMap = new Map<string, ZipEntryInfo>();
+  for (const entry of entries) entryMap.set(normalizePath(entry.name), entry);
+
+  const infoEntry = entries.find((e) => /Payload\/[^/]+\.app\/Info\.plist$/i.test(e.name));
   if (!infoEntry) throw new Error("Info.plist not found");
-  const info = parsePlist(infoEntry.data);
+  const infoBuf = await readZipEntry(ipaBytes, infoEntry);
+  const info: any = parsePlist(infoBuf);
   if (!info) throw new Error("Info.plist parse failed");
 
   const bundle_id = asString(info.CFBundleIdentifier);
@@ -156,15 +158,15 @@ async function extractIpaMeta(ipaBytes: Uint8Array) {
 
   if (!display_name || /\$\(|%[@{]/.test(display_name)) {
     const devRegion = asString(info.CFBundleDevelopmentRegion) || "en";
-    const appDir = infoEntry.path.replace(/\/Info\.plist$/i, "/");
+    const appDir = infoEntry.name.slice(0, infoEntry.name.lastIndexOf("/") + 1);
     const candidates = [
-      appDir + `${devRegion}.lproj/InfoPlist.strings`,
-      appDir + "Base.lproj/InfoPlist.strings",
+      normalizePath(appDir + `${devRegion}.lproj/InfoPlist.strings`),
+      normalizePath(appDir + "Base.lproj/InfoPlist.strings"),
     ];
-    for (const candidate of candidates) {
-      const entry = findZipEntry(zip, new RegExp(escapeRegex(candidate) + "$", "i"));
+    for (const key of candidates) {
+      const entry = entryMap.get(key);
       if (!entry) continue;
-      const dict = parsePlistOrStrings(entry.data);
+      const dict = parsePlistOrStrings(await readZipEntry(ipaBytes, entry));
       const v =
         asString(dict?.CFBundleDisplayName) ||
         asString(dict?.CFBundleName) ||
@@ -200,10 +202,6 @@ function parsePlistOrStrings(buf: Uint8Array): any {
   return out;
 }
 
-const tdUtf8 = new TextDecoder("utf-8");
-const tdUtf16le = new TextDecoder("utf-16le");
-const tdUtf16be = new TextDecoder("utf-16be");
-
 function decodeText(bytes: Uint8Array): string {
   if (!bytes || bytes.length === 0) return "";
   if (bytes.length >= 2) {
@@ -231,12 +229,21 @@ function parsePlistXml(xml: string) {
 
 function parsePlistXmlValue(node: string): unknown {
   const trimmed = node.trim();
-  if (/^<string/i.test(trimmed)) return decodeXml(trimmed.replace(/^<string[^>]*>/i, "").replace(/<\/string>$/i, "").trim());
-  if (/^<integer/i.test(trimmed)) return parseInt(trimmed.replace(/^<integer[^>]*>/i, "").replace(/<\/integer>$/i, "").trim(), 10);
-  if (/^<real/i.test(trimmed)) return parseFloat(trimmed.replace(/^<real[^>]*>/i, "").replace(/<\/real>$/i, "").trim());
+  if (/^<string/i.test(trimmed)) {
+    return decodeXml(trimmed.replace(/^<string[^>]*>/i, "").replace(/<\/string>$/i, "").trim());
+  }
+  if (/^<integer/i.test(trimmed)) {
+    return parseInt(trimmed.replace(/^<integer[^>]*>/i, "").replace(/<\/integer>$/i, "").trim(), 10);
+  }
+  if (/^<real/i.test(trimmed)) {
+    return parseFloat(trimmed.replace(/^<real[^>]*>/i, "").replace(/<\/real>$/i, "").trim());
+  }
   if (/^<true\/?>/i.test(trimmed)) return true;
   if (/^<false\/?>/i.test(trimmed)) return false;
-  if (/^<dict/i.test(trimmed)) return parsePlistXml(trimmed.replace(/^<dict[^>]*>/i, "").replace(/<\/dict>$/i, ""));
+  if (/^<dict/i.test(trimmed)) {
+    const inner = trimmed.replace(/^<dict[^>]*>/i, "").replace(/<\/dict>$/i, "");
+    return parsePlistXml(inner);
+  }
   if (/^<array/i.test(trimmed)) {
     const inner = trimmed.replace(/^<array[^>]*>/i, "").replace(/<\/array>$/i, "");
     const items: unknown[] = [];
@@ -355,10 +362,73 @@ function readUIntBE(view: DataView, offset: number, length: number): bigint {
   return n;
 }
 
-function findZipEntry(zip: Record<string, Uint8Array>, pattern: RegExp) {
-  const path = Object.keys(zip).find((p) => pattern.test(p));
-  if (!path) return null;
-  return { path, data: zip[path] };
+interface ZipEntryInfo {
+  name: string;
+  compression: number;
+  compSize: number;
+  localOffset: number;
+}
+
+function parseZipEntries(bytes: Uint8Array): ZipEntryInfo[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const eocdSig = 0x06054b50;
+  const maxBack = Math.min(bytes.length, 65557);
+  let eocd = -1;
+  for (let i = bytes.length - 22; i >= bytes.length - maxBack; i--) {
+    if (view.getUint32(i, true) === eocdSig) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error("ZIP EOCD not found");
+  const cdCount = view.getUint16(eocd + 10, true);
+  const cdSize = view.getUint32(eocd + 12, true);
+  const cdOff = view.getUint32(eocd + 16, true);
+  const entries: ZipEntryInfo[] = [];
+  let ptr = cdOff;
+  const end = cdOff + cdSize;
+  for (let i = 0; i < cdCount && ptr + 46 <= end; i++) {
+    const sig = view.getUint32(ptr, true);
+    if (sig !== 0x02014b50) break;
+    const compression = view.getUint16(ptr + 10, true);
+    const compSize = view.getUint32(ptr + 20, true);
+    const nameLen = view.getUint16(ptr + 28, true);
+    const extraLen = view.getUint16(ptr + 30, true);
+    const commentLen = view.getUint16(ptr + 32, true);
+    const localOffset = view.getUint32(ptr + 42, true);
+    const nameBytes = bytes.subarray(ptr + 46, ptr + 46 + nameLen);
+    const name = tdUtf8.decode(nameBytes);
+    entries.push({ name, compression, compSize, localOffset });
+    ptr += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+
+async function readZipEntry(bytes: Uint8Array, entry: ZipEntryInfo): Promise<Uint8Array> {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const sig = view.getUint32(entry.localOffset, true);
+  if (sig !== 0x04034b50) throw new Error("ZIP local header mismatch");
+  const nameLen = view.getUint16(entry.localOffset + 26, true);
+  const extraLen = view.getUint16(entry.localOffset + 28, true);
+  const dataStart = entry.localOffset + 30 + nameLen + extraLen;
+  const compData = bytes.subarray(dataStart, dataStart + entry.compSize);
+  if (entry.compression === 0) return compData.slice();
+  if (entry.compression === 8) return await inflateRaw(compData);
+  throw new Error("Unsupported ZIP compression method: " + entry.compression);
+}
+
+async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("Deflate not supported in this runtime");
+  }
+  const stream = new DecompressionStream("deflate-raw");
+  const writer = stream.writable.getWriter();
+  await writer.write(data);
+  await writer.close();
+  const resp = new Response(stream.readable);
+  const buf = await resp.arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+function normalizePath(path: string) {
+  return path.replace(/\\/g, "/").replace(/\/+/g, "/").toLowerCase();
 }
 
 function asString(v: unknown): string {
@@ -370,7 +440,17 @@ function asString(v: unknown): string {
 }
 
 function decodeStringsToken(token: string) {
-  return token.replace(/\\(.)/g, (_, ch) => ch);
+  return token.replace(/\\([\\nrt"'\\])/g, (_, ch) => {
+    switch (ch) {
+      case "n": return "\n";
+      case "r": return "\r";
+      case "t": return "\t";
+      case '"': return '"';
+      case "'": return "'";
+      case "\\": return "\\";
+      default: return ch;
+    }
+  });
 }
 
 function decodeXml(input: string) {
@@ -386,8 +466,4 @@ function decodeXml(input: string) {
       if (Number.isNaN(num)) return "";
       return String.fromCodePoint(num);
     });
-}
-
-function escapeRegex(input: string) {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
