@@ -46,7 +46,7 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
       lang?: string;
       apk_key?: string;
       ipa_key?: string;
-      ipaMeta?: { bundle_id?: string; version?: string };
+      ipaMeta?: { bundle_id?: string; version?: string; display_name?: string };
       createdAt?: number;
       updatedAt?: number;
     };

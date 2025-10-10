@@ -1,5 +1,8 @@
 // functions/api/links/create.ts
 import { readCookie, verifySession, Env as AuthEnv } from "../_lib/auth";
+import JSZip from "jszip";
+import * as bplist from "bplist-parser";
+import * as plist from "plist";
 
 export interface Env extends AuthEnv {
   LINKS: KVNamespace;
@@ -27,10 +30,13 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
     const ipa_key = b.ipaKey ? String(b.ipaKey) : "";
 
     // 解析來自前端的 ipaMeta（若有）
-    const ipaMeta = b.ipaMeta && typeof b.ipaMeta === "object" ? {
+    const ipaMeta = b.ipaMeta && typeof b.ipaMeta === "object"
+  ? {
       bundle_id: String(b.ipaMeta.bundle_id || ""),
-      version:   String(b.ipaMeta.version   || "")
-    } : null;
+      version: String(b.ipaMeta.version || ""),
+      display_name: String(b.ipaMeta.display_name || "")
+    }
+  : null;
 
     if (!apk_key && !ipa_key) return j({ error: "apkKey or ipaKey required" }, 400);
 
@@ -60,6 +66,27 @@ export const onRequestPost: PagesFunction<Env> = async (ctx) => {
       createdAt: now,
       updatedAt: now
     };
+
+    if (ipa_key) {
+      const needFill =
+        !ipaMeta ||
+        !ipaMeta.bundle_id ||
+        !ipaMeta.version ||
+        !ipaMeta.display_name;
+
+      if (needFill) {
+        try {
+          const meta = await ensureIpaMeta(ipa_key); // 下面附小工具
+          if (meta) {
+            (rec as any).ipaMeta = {
+              bundle_id: meta.bundle_id || (ipaMeta?.bundle_id ?? ""),
+              version: meta.version || (ipaMeta?.version ?? ""),
+              display_name: meta.display_name || (ipaMeta?.display_name ?? ""),
+            };
+          }
+        } catch (_) { /* 失敗不擋建立，讓 /d 端提示不完整 */ }
+      }
+    }
 
     // 4) 寫入主資料
     await LINKS.put(`link:${code}`, JSON.stringify(rec));
@@ -91,4 +118,70 @@ function code4() {
   let s = "";
   for (let i = 0; i < 4; i++) s += chars[Math.floor(Math.random() * chars.length)];
   return s;
+}
+async function ensureIpaMeta(ipaKey: string) {
+  // 你的 CDN 路徑寫法，依你現狀調整
+  const url = "https://cdn.rudownload.win/" + encodePath(ipaKey.replace(/^\/+/, ""));
+  const r = await fetch(url, { cf: { cacheTtl: 0 } });
+  if (!r.ok) throw new Error("fetch ipa failed");
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  return await extractIpaMeta(bytes);
+}
+
+function encodePath(path: string) {
+  return path.split("/").map(s =>
+    encodeURIComponent(s).replace(/[!'()*]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase())
+  ).join("/");
+}
+
+async function extractIpaMeta(ipaBytes: Uint8Array) {
+  const zip = await JSZip.loadAsync(ipaBytes);
+  const infoPath = Object.keys(zip.files).find(p => /Payload\/[^/]+\.app\/Info\.plist$/.test(p));
+  if (!infoPath) throw new Error("Info.plist not found");
+  const infoBuf = await zip.file(infoPath)!.async("uint8array");
+  const info: any = parsePlist(infoBuf);
+  if (!info) throw new Error("Info.plist parse failed");
+
+  const bundle_id = info.CFBundleIdentifier || "";
+  const version = info.CFBundleShortVersionString || info.CFBundleVersion || "";
+
+  // 顯示名稱：先取 plist；若空或疑似占位，再讀本地化 strings
+  let display_name = (info.CFBundleDisplayName || info.CFBundleName || "").trim();
+  if (!display_name || /\$\(|%[@{]/.test(display_name)) {
+    const devRegion = String(info.CFBundleDevelopmentRegion || "en");
+    const appDir = infoPath.replace(/\/Info\.plist$/, "/");
+    const candidates = [
+      appDir + `${devRegion}.lproj/InfoPlist.strings`,
+      appDir + `Base.lproj/InfoPlist.strings`
+    ];
+    for (const p of candidates) {
+      if (!zip.files[p]) continue;
+      const buf = await zip.file(p)!.async("uint8array");
+      const dict = parsePlistOrStrings(buf);
+      const v = dict?.CFBundleDisplayName || dict?.CFBundleName;
+      if (v && String(v).trim()) { display_name = String(v).trim(); break; }
+    }
+  }
+  return { bundle_id, version, display_name };
+}
+
+function parsePlist(buf: Uint8Array) {
+  try { return bplist.parseBuffer(Buffer.from(buf))[0]; } catch {}
+  try { return plist.parse(Buffer.from(buf).toString("utf8")); } catch {}
+  return null;
+}
+
+// .strings 可能是 binary plist、也可能是 UTF-16/UTF-8 的 key="value"; 檔
+function parsePlistOrStrings(buf: Uint8Array): any {
+  const fromPlist = parsePlist(buf);
+  if (fromPlist) return fromPlist;
+  // 嘗試當作字串表：偵測 UTF-16 BOM
+  const u8 = Buffer.from(buf);
+  let s = "";
+  if (u8[0] === 0xFF && u8[1] === 0xFE) s = new TextDecoder("utf-16le").decode(u8);
+  else if (u8[0] === 0xFE && u8[1] === 0xFF) s = new TextDecoder("utf-16be").decode(u8);
+  else s = new TextDecoder("utf-8").decode(u8);
+  const out: any = {};
+  s.replace(/"([^"]+)"\s*=\s*"([^"]*)"\s*;/g, (_, k, v) => { out[k] = v; return ""; });
+  return out;
 }
