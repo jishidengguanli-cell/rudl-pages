@@ -329,17 +329,41 @@ const LOCALES: Record<string, Record<string,string>> = {
 // ===== 其餘 helpers（原樣保留） =====
 function renderLangSwitcher(code: string, cur: string) {
   const opts = [
-    { v:"en",    label:"English" },
-    { v:"ru",    label:"Русский" },
-    { v:"vi",    label:"Tiếng Việt" },
-    { v:"zh-TW", label:"繁中" },
-    { v:"zh-CN", label:"简体" }
+    { v:"en",   label:"English" },
+    { v:"ru",   label:"Русский" },
+    { v:"vi",   label:"Tiếng Việt" },
+    { v:"zh-TW",label:"繁中" },
+    { v:"zh-CN",label:"简体" },
   ];
-  return opts.map(o => {
-    const href = `/d/${encodeURIComponent(code)}?lang=${encodeURIComponent(o.v)}`;
-    const cls = (o.v===cur) ? 'class="active"' : '';
-    return `<a ${cls} href="${href}">${h(o.label)}</a>`;
-  }).join("");
+
+  const options = opts.map(o =>
+    `<option value="${h(o.v)}"${o.v === cur ? " selected" : ""}>${h(o.label)}</option>`
+  ).join("");
+
+  // 產生下拉 + 變更即導向 ?lang=xx（保留其他查詢參數）
+  return `
+  <label style="display:inline-flex;align-items:center;gap:.5rem">
+    <span style="opacity:.75">${h("語言 / Language")}</span>
+    <select id="langSel"
+            style="padding:.4rem .6rem;border-radius:10px;background:#0b1222;border:1px solid #334155;color:#e5e7eb">
+      ${options}
+    </select>
+  </label>
+  <script>
+    (function(){
+      var sel = document.getElementById('langSel');
+      if(!sel) return;
+      sel.addEventListener('change', function(){
+        var url = new URL(location.href);
+        url.searchParams.set('lang', this.value);
+        location.href = url.toString();
+      });
+    })();
+  </script>`;
+}
+
+
+}).join("");
 }
 
 function normLang(v?: string | null) {
