@@ -334,21 +334,31 @@ const LOCALES: Record<string, Record<string,string>> = {
 // ===== 其餘 helpers（原樣保留） =====
 function renderLangSwitcher(code: string, cur: string) {
   const opts = [
-    { v:"en",   label:"English" },
-    { v:"ru",   label:"Русский" },
-    { v:"vi",   label:"Tiếng Việt" },
-    { v:"zh-TW",label:"繁中" },
-    { v:"zh-CN",label:"简体" },
+    { v: "en",    label: "English" },
+    { v: "ru",    label: "Русский" },
+    { v: "vi",    label: "Tiếng Việt" },
+    { v: "zh-TW", label: "繁中" },
+    { v: "zh-CN", label: "简体" },
   ];
 
-  const options = opts.map(o =>
-    `<option value="${h(o.v)}"${o.v === cur ? " selected" : ""}>${h(o.label)}</option>`
-  ).join("");
+  // 這裡不要呼叫 t()（作用域拿不到），直接用 LOCALES 取對應語系的翻譯
+  const langLabel =
+    (LOCALES as any)?.[cur]?.language ||
+    (LOCALES as any)?.["zh-TW"]?.language ||
+    "Language";
 
-  // 產生下拉 + 變更即導向 ?lang=xx（保留其他查詢參數）
+  const options = opts
+    .map(
+      (o) =>
+        `<option value="${h(o.v)}"${
+          o.v === cur ? " selected" : ""
+        }>${h(o.label)}</option>`
+    )
+    .join("");
+
   return `
   <label style="display:inline-flex;align-items:center;gap:.5rem">
-    <span style="opacity:.75">${h(t("language"))}</span>
+    <span style="opacity:.75">${h(langLabel)}</span>
     <select id="langSel"
             style="padding:.4rem .6rem;border-radius:10px;background:#0b1222;border:1px solid #334155;color:#e5e7eb">
       ${options}
@@ -366,6 +376,7 @@ function renderLangSwitcher(code: string, cur: string) {
     })();
   </script>`;
 }
+
 
 function normLang(v?: string | null) {
   if (!v) return "";
