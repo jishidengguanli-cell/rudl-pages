@@ -1,6 +1,4 @@
 // functions/m/[code].ts
-// 產生 iOS OTA 安裝用的 manifest.plist（itms-services 指向的目標）
-
 export interface Env { LINKS: KVNamespace }
 
 export const onRequestGet: PagesFunction<Env> = async (ctx) => {
@@ -10,31 +8,45 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const raw = await ctx.env.LINKS.get(`link:${code}`);
   if (!raw) return notFound();
 
+  type Meta = {
+    bundle_id?: string;
+    version?: string;
+    // 盡量覆蓋各種可能的鍵名（你後端解析 IPA 時可存其中之一）
+    display_name?: string;
+    name?: string;
+    CFBundleDisplayName?: string;
+    CFBundleName?: string;
+  };
   const rec = JSON.parse(raw) as {
     code: string;
-    title?: string;
-    version?: string;         // 顯示用（使用者填）
-    bundle_id?: string;       // 顯示用（使用者填）
-    ipa_key?: string;         // R2/CDN 上的路徑
-    ipaMeta?: {               // 從 IPA 解析出的真實資訊（若有）
-      bundle_id?: string;
-      version?: string;
-    };
+    title?: string;      // 分發時填的名稱（僅後備）
+    version?: string;    // 分發時填的版本（後備）
+    bundle_id?: string;  // 分發時填的 BundleID（後備）
+    ipa_key?: string;
+    ipaMeta?: Meta;
   };
-
   if (!rec.ipa_key) return notFound();
 
-  const title   = rec.title || "App";
-  const meta    = rec.ipaMeta || {};
-  // 以 ipaMeta 優先，其次用顯示欄位，最後給預設
-  const bundle  = meta.bundle_id || rec.bundle_id || `com.unknown.${rec.code}`;
-  const version = meta.version  || rec.version  || "1.0";
+  const meta = rec.ipaMeta || {};
 
-  // RFC3986：逐段編碼但保留斜線，避免中文/空白/特殊字元
+  // 1) 名稱：優先 IPA 內的 display_name/name/...，最後才用分發填的
+  const title =
+    meta.display_name ||
+    meta.name ||
+    meta.CFBundleDisplayName ||
+    meta.CFBundleName ||
+    rec.title ||
+    "App";
+
+  // 2) 版本/BundleId 也一律優先 IPA 內 meta，其次才用分發欄位
+  const version = meta.version || rec.version || "1.0";
+  const bundle  = meta.bundle_id || rec.bundle_id || `com.unknown.${rec.code}`;
+
+  // RFC3986 逐段編碼（保留斜線）
   const ipaPath = encodeRfc3986Path(rec.ipa_key.replace(/^\/+/, ""));
   const ipaUrl  = `https://cdn.rudownload.win/${ipaPath}`;
 
-  // 正規、完整的 plist 內容（XML）
+  // 合法的 OTA manifest.plist
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -63,7 +75,6 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 
   return new Response(plist, {
     headers: {
-      // 關鍵：必須是 x-plist（或 application/xml 也可，但 x-plist 最穩）
       "content-type": "application/x-plist; charset=utf-8",
       "cache-control": "public, max-age=300",
       "x-content-type-options": "nosniff",
@@ -72,30 +83,19 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
 };
 
 function notFound() {
-  return new Response("Not Found", {
-    status: 404,
-    headers: { "cache-control": "no-store" },
-  });
+  return new Response("Not Found", { status: 404, headers: { "cache-control": "no-store" } });
 }
-
-// 嚴格 XML 轉義（<&>\"）
 function xml(s: any) {
   return String(s).replace(/[<&>"]/g, (m) =>
-    m === "<" ? "&lt;"
-    : m === ">" ? "&gt;"
-    : m === "&" ? "&amp;"
-    : "&quot;"
+    m === "<" ? "&lt;" : m === ">" ? "&gt;" : m === "&" ? "&amp;" : m
   );
 }
-
-// RFC3986：逐段編碼但保留斜線
+// RFC3986：逐段編碼，但保留斜線
 function encodeRfc3986Path(path: string) {
   return path
     .split("/")
-    .map(seg =>
-      encodeURIComponent(seg).replace(/[!'()*]/g, c =>
-        `%${c.charCodeAt(0).toString(16).toUpperCase()}`
-      )
-    )
+    .map(seg => encodeURIComponent(seg).replace(/[!'()*]/g, c =>
+      `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+    ))
     .join("/");
 }
