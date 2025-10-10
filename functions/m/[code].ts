@@ -30,9 +30,9 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const meta = rec.ipaMeta || {};
 
   // 1) 名稱： IPA 內的 display_name/name/...
-  const title   = meta.display_name || meta.name || meta.CFBundleDisplayName || meta.CFBundleName || "";
-  const version = meta.version || "";
-  const bundle  = meta.bundle_id || "";
+  const title   = meta.display_name || meta.name || meta.CFBundleDisplayName || meta.CFBundleName || rec.title ||  "";
+  const version = meta.version || rec.version || "1.0";
+  const bundle  = meta.bundle_id || rec.bundle_id || `com.unknown.${rec.code}`;
 
   // RFC3986 逐段編碼（保留斜線）
   const ipaPath = encodeRfc3986Path(rec.ipa_key.replace(/^\/+/, ""));
