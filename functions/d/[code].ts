@@ -362,7 +362,7 @@ const LOCALES: Record<string, Record<string,string>> = {
 };
 
 
-// ===== 其餘 helpers（原樣保留） =====
+/* ---------- helpers ---------- */
 function renderLangSwitcher(code: string, cur: string) {
   const opts = [
     { v: "en",    label: "English" },
@@ -430,7 +430,6 @@ function pickBestLang(primary: string, accept: string | null) {
 }
 function htmlLang(l:string){ return l==="zh-CN"?"zh-Hans":(l==="zh-TW"?"zh-Hant":l); }
 
-// ---- helpers ----
 function resp404(msg: string) {
   return new Response(msg || "Not Found", { status: 404, headers: { "cache-control": "no-store" }});
 }
