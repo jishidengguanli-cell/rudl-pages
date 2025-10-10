@@ -261,7 +261,8 @@ const LOCALES: Record<string, Record<string,string>> = {
     path16:"設定 → 一般 → VPN 與裝置管理 → 開發者 App → 信任",
     path14:"設定 → 一般 → 描述檔與裝置管理 → 開發者 App → 信任",
     pathOld:"設定 → 一般 → 裝置管理 / 描述檔 → 開發者 App → 信任",
-    detected:"偵測到 iOS"
+    detected:"偵測到 iOS",
+    language:"語言"
   },
   "en": {
     download:"Download", version:"Version", platform:"Platform",
@@ -276,7 +277,8 @@ const LOCALES: Record<string, Record<string,string>> = {
     path16:"Settings → General → VPN & Device Management → Developer App → Trust",
     path14:"Settings → General → Profiles & Device Management → Developer App → Trust",
     pathOld:"Settings → General → Device Management / Profiles → Developer App → Trust",
-    detected:"Detected iOS"
+    detected:"Detected iOS",
+    language:"Language"
   },
   "zh-CN": {
     download:"下载", version:"版本", platform:"平台",
@@ -291,7 +293,8 @@ const LOCALES: Record<string, Record<string,string>> = {
     path16:"设置 → 通用 → VPN 与设备管理 → 开发者 App → 信任",
     path14:"设置 → 通用 → 描述文件与设备管理 → 开发者 App → 信任",
     pathOld:"设置 → 通用 → 设备管理 / 描述文件 → 开发者 App → 信任",
-    detected:"检测到 iOS"
+    detected:"检测到 iOS",
+    language:"语言"
   },
   "ru": {
     download:"Загрузка", version:"Версия", platform:"Платформа",
@@ -306,7 +309,8 @@ const LOCALES: Record<string, Record<string,string>> = {
     path16:"Настройки → Основные → VPN и управление устройством → Developer App → Доверять",
     path14:"Настройки → Основные → Профили и управление устройством → Developer App → Доверять",
     pathOld:"Настройки → Основные → Управление устройством / Профили → Developer App → Доверять",
-    detected:"Обнаружена iOS"
+    detected:"Обнаружена iOS",
+    language:"язык"
   },
   "vi": {
     download:"Tải xuống", version:"Phiên bản", platform:"Nền tảng",
@@ -321,7 +325,8 @@ const LOCALES: Record<string, Record<string,string>> = {
     path16:"Cài đặt → Cài đặt chung → VPN & Quản lý thiết bị → Developer App → Tin cậy",
     path14:"Cài đặt → Cài đặt chung → Hồ sơ & Quản lý thiết bị → Developer App → Tin cậy",
     pathOld:"Cài đặt → Cài đặt chung → Quản lý thiết bị / Hồ sơ → Developer App → Tin cậy",
-    detected:"Đã phát hiện iOS"
+    detected:"Đã phát hiện iOS",
+    language:"ngôn ngữ"
   },
 };
 
@@ -343,7 +348,7 @@ function renderLangSwitcher(code: string, cur: string) {
   // 產生下拉 + 變更即導向 ?lang=xx（保留其他查詢參數）
   return `
   <label style="display:inline-flex;align-items:center;gap:.5rem">
-    <span style="opacity:.75">${h("語言 / Language")}</span>
+    <span style="opacity:.75">${h(t("language"))}</span>
     <select id="langSel"
             style="padding:.4rem .6rem;border-radius:10px;background:#0b1222;border:1px solid #334155;color:#e5e7eb">
       ${options}
