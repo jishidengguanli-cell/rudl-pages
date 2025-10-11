@@ -48,7 +48,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   
   // 缺值檢查（安裝用）
   const missing: string[] = [];
-  if (!pkgName) missing.push("App Name");
+  // if (!pkgName) missing.push("App Name");
   if (!pkgVer)  missing.push("Version");
   if (!pkgBid)  missing.push("Bundle ID");
   const missMsg = missing.length ? ("安裝包資訊不完整： " + missing.join("、")) : "";
