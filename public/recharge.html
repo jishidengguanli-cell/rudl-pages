@@ -66,7 +66,7 @@
           <div class="title" style="font-weight:600">${p.name}</div>
           <div class="price">$${(p.priceCents/100).toFixed(0)} <span class="muted">/ one-time</span></div>
           <div class="muted">Includes ${p.points} points</div>
-          // <div style="margin-top:12px"><button>Buy now</button></div>
+          
         `;
         el.querySelector('button').addEventListener('click', () => buy(p.id));
         elPlans.appendChild(el);
