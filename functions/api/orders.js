@@ -11,7 +11,16 @@ const PLAN_MAP = {
   p100000: { points: 100000, priceCents: 20000  },
 };
 
+const PURCHASES_ENABLED = false;
+
 export async function onRequestPost({ request, env }) {
+  if (!PURCHASES_ENABLED) {
+    return json(
+      { error: "PURCHASE_DISABLED", message: "Purchasing is currently disabled." },
+      503,
+    );
+  }
+
   // 以 session 取得會員 uid；若沒登入，再相容舊 cookie uid（避免你測試時白頁）
   let uid = "";
   try {

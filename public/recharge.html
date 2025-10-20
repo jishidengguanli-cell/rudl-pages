@@ -66,9 +66,8 @@
           <div class="title" style="font-weight:600">${p.name}</div>
           <div class="price">$${(p.priceCents/100).toFixed(0)} <span class="muted">/ one-time</span></div>
           <div class="muted">Includes ${p.points} points</div>
-          <div style="margin-top:12px"><button>Buy now</button></div>
+          <div class="muted" style="margin-top:12px">Purchasing temporarily unavailable</div>
         `;
-        el.querySelector('button').addEventListener('click', () => buy(p.id));
         elPlans.appendChild(el);
       }
     }
@@ -77,21 +76,6 @@
       const { points } = await getJSON('/api/me/points');
       elBal.textContent = points;
       // 廣播：同分頁事件 + 跨分頁 storage 事件
-      window.dispatchEvent(new Event('points:updated'));
-      localStorage.setItem('points:updated', String(Date.now()));
-    }
-
-    async function buy(planId) {
-      try {
-        const j = await getJSON('/api/orders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ planId })
-        });
-        elBal.textContent = j.balance;
-      } catch (e) {
-        alert(e.message || 'Failed');
-      }
       window.dispatchEvent(new Event('points:updated'));
       localStorage.setItem('points:updated', String(Date.now()));
     }
